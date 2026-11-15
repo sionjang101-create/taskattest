@@ -24,8 +24,8 @@ Design rules
 - Three verdicts only: pass / partial / fail.
 - Fail closed. A check that cannot be carried out fails; it never passes by default.
 
-Checks cover three artifact families: record sets (CSV, TSV, JSON arrays, JSONL),
-JSON documents, and text deliverables. Two of them target failures specific to
+Checks cover three artifact families: record sets (CSV, TSV, Excel, JSON arrays,
+JSONL), JSON documents, and text deliverables. Two of them target failures specific to
 agents: `subset_of` catches invented records, and `file_hash` catches an input
 edited to make the other checks pass.
 
@@ -44,7 +44,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-TOOL_VERSION = "0.3.0"
+import xlsx
+
+TOOL_VERSION = "0.4.0"
 CHUNK = 1 << 16
 MAX_LISTED = 50  # cap on keys listed in a manifest, so evidence stays small
 
@@ -68,12 +70,15 @@ def canonical_digest(obj) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def load_records(path: Path, records_key=None) -> list:
-    """Read an artifact as a list of records: CSV, TSV, a JSON array, or JSONL.
+def load_records(path: Path, records_key=None, sheet=None, header_row=1) -> list:
+    """Read an artifact as a list of records: CSV, TSV, Excel, a JSON array, or JSONL.
 
     `records_key` names the array inside a JSON object, as in {"items": [...]}.
+    `sheet` and `header_row` apply to Excel workbooks and are ignored otherwise.
     """
     suffix = path.suffix.lower()
+    if suffix in xlsx.SUFFIXES:
+        return xlsx.read_xlsx(path, sheet, header_row)[1]
     if suffix in (".csv", ".tsv"):
         delimiter = "\t" if suffix == ".tsv" else ","
         with path.open("r", encoding="utf-8-sig", newline="") as f:
@@ -101,9 +106,13 @@ def load_records(path: Path, records_key=None) -> list:
                      + ("" if records_key else "; name it with records_key"))
 
 
-def columns_of(path: Path, rows: list) -> list:
-    """Column names: the declared header for CSV, the union of keys for JSON."""
+def columns_of(path: Path, rows: list, options=None) -> list:
+    """Column names: the declared header for CSV and Excel, the union of keys for JSON."""
+    options = options or {}
     suffix = path.suffix.lower()
+    if suffix in xlsx.SUFFIXES:
+        return xlsx.read_xlsx(path, options.get("sheet"),
+                              options.get("header_row", 1))[0]
     if suffix in (".csv", ".tsv"):
         delimiter = "\t" if suffix == ".tsv" else ","
         with path.open("r", encoding="utf-8-sig", newline="") as f:
@@ -200,12 +209,24 @@ def format_amount(minor: int) -> str:
     return f"{sign}{minor // 100}.{minor % 100:02d}"
 
 
-def _records(ctx, args, field: str, records_key_field: str = "records_key"):
+def _source_options(args, field: str) -> dict:
+    """Reader options for one field: `target` takes them bare, others prefixed.
+
+    So a check reads `sheet` for its target and `source_sheet` for its source.
+    """
+    prefix = "" if field == "target" else field + "_"
+    return {"records_key": args.get(prefix + "records_key"),
+            "sheet": args.get(prefix + "sheet"),
+            "header_row": args.get(prefix + "header_row", 1)}
+
+
+def _records(ctx, args, field: str):
     path = ctx["resolve"](args[field])
     if not path.is_file():
         raise CheckFail(f"{field} file not found")
+    options = _source_options(args, field)
     try:
-        return path, load_records(path, args.get(records_key_field))
+        return path, load_records(path, **options), options
     except (ValueError, json.JSONDecodeError) as exc:
         raise CheckFail(f"{field} is not a readable record set: {exc}")
 
@@ -263,11 +284,11 @@ def check_file_hash(ctx, args) -> dict:
 # ---------- checks: record sets ----------
 
 def check_csv_columns(ctx, args) -> dict:
-    path, rows = _records(ctx, args, "target")
+    path, rows, options = _records(ctx, args, "target")
     wanted = args.get("columns")
     if not wanted:
         raise CheckFail("csv_columns needs a columns list")
-    header = columns_of(path, rows)
+    header = columns_of(path, rows, options)
     missing = [c for c in wanted if c not in header]
     return {"status": "pass" if not missing else "fail",
             "detail": f"{len(rows)} records, missing columns: {missing or 'none'}",
@@ -275,7 +296,7 @@ def check_csv_columns(ctx, args) -> dict:
 
 
 def check_row_count(ctx, args) -> dict:
-    path, rows = _records(ctx, args, "target")
+    _, rows, _ = _records(ctx, args, "target")
     count = len(rows)
     equals, low, high = args.get("equals"), args.get("min"), args.get("max")
     if equals is None and low is None and high is None:
@@ -293,7 +314,7 @@ def check_row_count(ctx, args) -> dict:
 
 
 def check_unique_key(ctx, args) -> dict:
-    path, rows = _records(ctx, args, "target")
+    _, rows, _ = _records(ctx, args, "target")
     key = args.get("key", "id")
     counts: dict = {}
     blank = 0
@@ -314,8 +335,8 @@ def check_unique_key(ctx, args) -> dict:
 
 def check_subset_of(ctx, args) -> dict:
     """Catches invented records: every output key must exist in the source."""
-    _, out_rows = _records(ctx, args, "target")
-    _, src_rows = _records(ctx, args, "source", "source_records_key")
+    _, out_rows, _ = _records(ctx, args, "target")
+    _, src_rows, _ = _records(ctx, args, "source")
     key = args.get("key", "id")
     source_key = args.get("source_key", key)
     allowed = {k for k in (key_of(r, source_key) for r in src_rows) if k is not None}
@@ -332,7 +353,7 @@ def check_subset_of(ctx, args) -> dict:
 
 
 def check_numeric_range(ctx, args) -> dict:
-    path, rows = _records(ctx, args, "target")
+    _, rows, _ = _records(ctx, args, "target")
     aggregate = args.get("aggregate", "each")
     if "min" not in args and "max" not in args:
         raise CheckFail("numeric_range needs min, max, or both")
@@ -379,8 +400,8 @@ def recompute_unpaid(ctx, args):
 
     The output file is never trusted as the source of truth.
     """
-    _, orders = _records(ctx, args, "orders")
-    _, payments = _records(ctx, args, "payments", "payments_records_key")
+    _, orders, _ = _records(ctx, args, "orders")
+    _, payments, _ = _records(ctx, args, "payments")
     key = args.get("key", "order_id")
     amount_column = args.get("amount_column", "amount")
     paid = {k for k in (key_of(r, key) for r in payments) if k is not None}
@@ -395,7 +416,7 @@ def recompute_unpaid(ctx, args):
 
 
 def check_reconcile_rows(ctx, args) -> dict:
-    _, out_rows = _records(ctx, args, "output")
+    _, out_rows, _ = _records(ctx, args, "output")
     expected, _ = recompute_unpaid(ctx, args)
     key = args.get("key", "order_id")
     actual = {k for k in (key_of(r, key) for r in out_rows) if k is not None}
@@ -409,7 +430,7 @@ def check_reconcile_rows(ctx, args) -> dict:
 
 
 def check_amount_sum(ctx, args) -> dict:
-    _, out_rows = _records(ctx, args, "output")
+    _, out_rows, _ = _records(ctx, args, "output")
     expected_keys, amounts = recompute_unpaid(ctx, args)
     column = args.get("amount_column", "amount")
     expected_total = sum(amounts[k] for k in expected_keys if k in amounts)
@@ -516,8 +537,10 @@ CHECKS = {
     "no_placeholders": check_no_placeholders,
 }
 
-RECORD_SOURCE = ("a CSV, TSV, JSON array or JSONL artifact; name the array inside a "
-                 "JSON object with records_key")
+RECORD_SOURCE = ("a CSV, TSV, Excel (.xlsx/.xlsm), JSON array or JSONL artifact. Name "
+                 "the array inside a JSON object with records_key; pick an Excel sheet "
+                 "with sheet and header_row. A field other than target takes these "
+                 "options prefixed with its own name, as in source_sheet")
 
 CHECK_DOCS = {
     "file_exists": {
@@ -536,7 +559,9 @@ CHECK_DOCS = {
         "verifies": "every required column is present",
         "fields": {"target": f"ref or path to {RECORD_SOURCE}",
                    "columns": "column names that must be present",
-                   "records_key": "optional array name inside a JSON object"},
+                   "records_key": "optional array name inside a JSON object",
+                   "sheet": "optional Excel sheet name or 1-based number",
+                   "header_row": "optional 1-based Excel header row, default 1"},
     },
     "row_count": {
         "family": "record set",
@@ -544,14 +569,18 @@ CHECK_DOCS = {
                      "must simply not be empty"),
         "fields": {"target": f"ref or path to {RECORD_SOURCE}",
                    "equals": "exact count", "min": "lower bound", "max": "upper bound",
-                   "records_key": "optional array name inside a JSON object"},
+                   "records_key": "optional array name inside a JSON object",
+                   "sheet": "optional Excel sheet name or 1-based number",
+                   "header_row": "optional 1-based Excel header row, default 1"},
     },
     "unique_key": {
         "family": "record set",
         "verifies": "no duplicate keys, and no record missing the key",
         "fields": {"target": f"ref or path to {RECORD_SOURCE}",
                    "key": "key column, default id",
-                   "records_key": "optional array name inside a JSON object"},
+                   "records_key": "optional array name inside a JSON object",
+                   "sheet": "optional Excel sheet name or 1-based number",
+                   "header_row": "optional 1-based Excel header row, default 1"},
     },
     "subset_of": {
         "family": "record set",
@@ -563,7 +592,9 @@ CHECK_DOCS = {
                    "key": "key column in the output, default id",
                    "source_key": "key column in the source, defaults to key",
                    "records_key": "optional array name inside the target",
-                   "source_records_key": "optional array name inside the source"},
+                   "source_records_key": "optional array name inside the source",
+                   "sheet": "optional Excel sheet for the target",
+                   "source_sheet": "optional Excel sheet for the source"},
     },
     "numeric_range": {
         "family": "record set",
@@ -573,7 +604,9 @@ CHECK_DOCS = {
                    "column": "the numeric column (not needed when aggregate is count)",
                    "aggregate": "each (default), sum, min, max or count",
                    "min": "lower bound", "max": "upper bound",
-                   "records_key": "optional array name inside a JSON object"},
+                   "records_key": "optional array name inside a JSON object",
+                   "sheet": "optional Excel sheet name or 1-based number",
+                   "header_row": "optional 1-based Excel header row, default 1"},
     },
     "reconcile_rows": {
         "family": "record set",
@@ -583,7 +616,10 @@ CHECK_DOCS = {
         "fields": {"orders": "ref or path to the full record set",
                    "payments": "ref or path to the set that cancels records out",
                    "output": "ref or path to the artifact under test",
-                   "key": "join column, default order_id"},
+                   "key": "join column, default order_id",
+                   "orders_sheet": "optional Excel sheet for orders",
+                   "payments_sheet": "optional Excel sheet for payments",
+                   "output_sheet": "optional Excel sheet for the output"},
     },
     "amount_sum": {
         "family": "record set",

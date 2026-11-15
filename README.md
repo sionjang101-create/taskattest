@@ -12,8 +12,9 @@ TaskProof takes the opposite approach: you declare what "done" means, and it che
 
 - **Deterministic.** Same inputs, same verdict, same evidence digest. No LLM in the judging path.
 - **Local.** Your data never leaves the machine. No API keys, no account, no network.
-- **Zero dependencies.** Standard library only — the MCP server included, written against
-  the protocol rather than an SDK. Any Python 3.9+.
+- **Zero dependencies.** Standard library only — the MCP server written against the
+  protocol rather than an SDK, and the Excel reader built on `zipfile` and `ElementTree`
+  rather than a spreadsheet library. Any Python 3.9+.
 - **Agent-callable.** An MCP server over stdio, so the agent can verify its own work.
 - **Replayable.** Every run writes a manifest with input/output hashes, per-check results, and the exact command to reproduce it.
 
@@ -37,6 +38,10 @@ Run the built-in tests — all three verdicts, then the MCP protocol:
 
 ```bash
 python selftest.py
+```
+
+```bash
+python test_xlsx.py
 ```
 
 ```bash
@@ -98,7 +103,7 @@ Thirteen check types over three artifact families.
 | `file_exists` | The named output is actually a file |
 | `file_hash` | The file still matches a SHA-256 recorded earlier |
 
-**Record sets** — CSV, TSV, a JSON array, or JSONL. Name the array inside a JSON object with `records_key`.
+**Record sets** — CSV, TSV, Excel (`.xlsx` / `.xlsm`), a JSON array, or JSONL. Name the array inside a JSON object with `records_key`; pick a worksheet with `sheet` (a name or a 1-based number) and `header_row`. A field other than `target` takes these options prefixed with its own name, as in `source_sheet` or `orders_sheet` — so one check can compare an `.xlsx` output against a `.csv` input.
 
 | Type | What it verifies |
 | --- | --- |
@@ -130,6 +135,19 @@ rest of the checks would pass.
 
 Numbers are compared in integer minor units, so no float arithmetic is involved anywhere and
 precision is two decimals. A check that cannot be carried out fails; it never passes by default.
+
+### Reading Excel
+
+`.xlsx` is a ZIP of XML, so [xlsx.py](xlsx.py) reads it with `zipfile` and `ElementTree` and no
+spreadsheet library. It handles shared strings including values split across formatting runs,
+inline strings, booleans, formula results, error cells such as `#DIV/0!`, cells skipped in the
+XML (so columns stay aligned with the header), numbers normalised out of scientific notation
+without float arithmetic, and dates and times converted to ISO 8601 for both the 1900 and 1904
+epochs.
+
+It does not write, and it reads values as stored rather than as displayed: a cached formula
+result instead of the formula, and no merged cells, charts or pivot tables. Excel's non-existent
+1900-02-29 serial is left as a raw number rather than invented into a date.
 
 ### Verdicts
 
@@ -195,15 +213,19 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified:** two task families on Windows with Python 3.13 — CSV reconciliation, and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails (19 assertions in `selftest.py`). The MCP server is driven as a real subprocess by `test_mcp_server.py` — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal (32 assertions). All passing.
+**Verified** on Windows with Python 3.13, 76 assertions across three suites, all passing.
 
-**Not yet verified:** large files, `.xlsx`, Linux and macOS, concurrent runs, non-UTF-8 encodings beyond BOM handling.
+- `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
+- `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
+- `test_mcp_server.py` (32): the server driven as a real subprocess — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal.
+
+**Not yet verified:** large files, Linux and macOS, concurrent runs, non-UTF-8 encodings beyond BOM handling, and Excel workbooks produced by anything other than the test writer — the reader is tested against XML written to the specification, not against a file saved by Excel itself.
 
 Issues and pull requests are welcome, but please expect a slow, best-effort response from a one-person project. Requests to add checks for a specific recurring task are the most useful kind.
 
 ## Roadmap, honestly stated
 
-The MCP interface and the wider check set are in. Planned next: spreadsheet (`.xlsx`) inputs, a Linux and macOS run of the test suite, and large-file handling.
+The MCP interface, the wider check set and Excel reading are in. Planned next: a Linux and macOS run of the suites, workbooks saved by Excel itself, large-file handling, and streaming instead of reading a whole sheet into memory.
 
 A paid tier is planned for **team-level features** — audit history across people and runs, approval records, comparison with previous evidence, and CI reporting. Everything documented in this README stays free and Apache-2.0 licensed. The paid tier will be a separate, closed-source add-on; it will not take away what is already here.
 
