@@ -64,14 +64,72 @@ python test_mcp_server.py
 }
 ```
 
+A deliverable task — a JSON summary plus a written report — is declared the same way:
+
+```json
+{
+  "task_id": "order_deliverable",
+  "inputs":  { "source": "in/source.csv" },
+  "outputs": { "summary": "out/summary.json", "report": "out/report.md" },
+  "core_output": "summary",
+  "checks": [
+    { "name": "summary fields", "type": "json_keys", "target": "outputs.summary",
+      "required": ["generated_for", "items.*.order_id"], "non_empty": ["items"] },
+    { "name": "no invented orders", "type": "subset_of", "target": "outputs.summary",
+      "records_key": "items", "key": "order_id",
+      "source": "inputs.source", "source_key": "order_id" },
+    { "name": "report sections", "type": "text_contains", "target": "outputs.report",
+      "contains": ["## Summary", "## Items"] },
+    { "name": "nothing left unwritten", "type": "no_placeholders", "target": "outputs.report" },
+    { "name": "input not tampered with", "type": "file_hash", "target": "inputs.source",
+      "sha256": "<the digest of the file as handed to the agent>" }
+  ]
+}
+```
+
 ### Checks available today
+
+Thirteen check types over three artifact families.
+
+**Any artifact**
 
 | Type | What it verifies |
 | --- | --- |
 | `file_exists` | The named output is actually a file |
-| `csv_columns` | The output has the required columns |
-| `reconcile_rows` | Rows present in one input and absent in another appear exactly once in the output — recomputed from the inputs, not trusted from the output |
-| `amount_sum` | The output total matches the recomputed total, using integer minor units (no floating point) |
+| `file_hash` | The file still matches a SHA-256 recorded earlier |
+
+**Record sets** — CSV, TSV, a JSON array, or JSONL. Name the array inside a JSON object with `records_key`.
+
+| Type | What it verifies |
+| --- | --- |
+| `csv_columns` | Every required column is present |
+| `row_count` | The record count fits `equals` / `min` / `max`. With no bounds given, simply that the artifact is not empty |
+| `unique_key` | No duplicate keys, and no record missing the key |
+| `subset_of` | Every key in the output exists in the source |
+| `numeric_range` | Values stay within bounds — `each`, or aggregated by `sum` / `min` / `max` / `count` |
+| `reconcile_rows` | Keys present in one input and absent from the other appear exactly once in the output — recomputed from the inputs, not trusted from the output |
+| `amount_sum` | The output total matches the recomputed total |
+
+**JSON documents**
+
+| Type | What it verifies |
+| --- | --- |
+| `json_valid` | The file parses, and optionally that the top level is the expected kind — catches prose, a markdown fence, or a truncated write |
+| `json_keys` | Required dotted paths exist and listed paths are not empty. A `*` step visits every array element, as in `items.*.order_id` |
+
+**Text deliverables**
+
+| Type | What it verifies |
+| --- | --- |
+| `text_contains` | Required strings appear and forbidden strings do not |
+| `no_placeholders` | No `TODO`, `lorem ipsum`, `{{`, `I cannot provide` or similar left in the deliverable |
+
+Two of these exist because of how *agents* fail rather than how programs fail. `subset_of` catches
+a plausible row that was never in the input. `file_hash` catches an input quietly edited so the
+rest of the checks would pass.
+
+Numbers are compared in integer minor units, so no float arithmetic is involved anywhere and
+precision is two decimals. A check that cannot be carried out fails; it never passes by default.
 
 ### Verdicts
 
@@ -137,7 +195,7 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified:** CSV reconciliation tasks on Windows with Python 3.13; three fixture cases (correct / missing output / incomplete output) judged 3/3 as expected; digest stable across repeated runs. The MCP server is driven as a real subprocess by `test_mcp_server.py` — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal: 32 checks, all passing.
+**Verified:** two task families on Windows with Python 3.13 — CSV reconciliation, and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails (19 assertions in `selftest.py`). The MCP server is driven as a real subprocess by `test_mcp_server.py` — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal (32 assertions). All passing.
 
 **Not yet verified:** large files, `.xlsx`, Linux and macOS, concurrent runs, non-UTF-8 encodings beyond BOM handling.
 
@@ -145,7 +203,7 @@ Issues and pull requests are welcome, but please expect a slow, best-effort resp
 
 ## Roadmap, honestly stated
 
-The MCP interface is in. Planned next: more check types, spreadsheet inputs, and a Linux and macOS run of the test suite.
+The MCP interface and the wider check set are in. Planned next: spreadsheet (`.xlsx`) inputs, a Linux and macOS run of the test suite, and large-file handling.
 
 A paid tier is planned for **team-level features** — audit history across people and runs, approval records, comparison with previous evidence, and CI reporting. Everything documented in this README stays free and Apache-2.0 licensed. The paid tier will be a separate, closed-source add-on; it will not take away what is already here.
 

@@ -28,6 +28,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+import runner
 import selftest
 
 ROOT = Path(__file__).parent.resolve()
@@ -149,10 +150,12 @@ def test_legacy(specs: dict) -> None:
 
         out = structured(s.request("tools/call", {"name": "describe_checks", "arguments": {}}),
                          "describe_checks")
-        check(set(out["check_types"]) == {"file_exists", "csv_columns",
-                                          "reconcile_rows", "amount_sum"},
-              "describe_checks lists all four check types")
-        check("checks" in out["spec_template"], "describe_checks returns a spec template")
+        check(set(out["check_types"]) == set(runner.CHECKS),
+              f"describe_checks lists exactly the {len(runner.CHECKS)} implemented "
+              f"check types: {len(out['check_types'])}")
+        check("checks" in out["spec_template"]
+              and "checks" in out["spec_template_deliverable"],
+              "describe_checks returns both spec templates")
 
         reply = s.request("tools/call", {"name": "verify_task",
                                          "arguments": {"spec_path": str(specs["case_incomplete"])}})

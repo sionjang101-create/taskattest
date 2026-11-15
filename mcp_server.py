@@ -90,36 +90,7 @@ class Session:
 
 # ---------- tool definitions ----------
 
-CHECK_DOCS = {
-    "file_exists": {
-        "verifies": "the named artifact exists as a file",
-        "fields": {"target": "a ref such as outputs.<name>, or a path relative to the spec"},
-    },
-    "csv_columns": {
-        "verifies": "the CSV carries every required column",
-        "fields": {"target": "ref or path to the CSV",
-                   "columns": "list of column names that must be present"},
-    },
-    "reconcile_rows": {
-        "verifies": ("every key present in one input but not the other appears exactly once "
-                     "in the output; the expected set is recomputed from the inputs, so the "
-                     "output is never trusted as the source of truth"),
-        "fields": {"orders": "ref or path to the full record set",
-                   "payments": "ref or path to the set that cancels records out",
-                   "output": "ref or path to the artifact under test",
-                   "key": "join column, default order_id"},
-    },
-    "amount_sum": {
-        "verifies": ("the output total equals the total recomputed from the inputs; money is "
-                     "summed in integer minor units, never in floating point"),
-        "fields": {"orders": "ref or path to the full record set",
-                   "payments": "ref or path to the set that cancels records out",
-                   "output": "ref or path to the artifact under test",
-                   "key": "join column, default order_id",
-                   "amount_column": "amount column, default amount"},
-    },
-}
-
+# Check documentation lives in runner.py, so the CLI and this server can never drift apart.
 SPEC_TEMPLATE = {
     "task_id": "order_payment_reconcile",
     "description": "List the orders that have no matching payment.",
@@ -135,6 +106,36 @@ SPEC_TEMPLATE = {
         {"name": "amount total", "type": "amount_sum", "orders": "inputs.orders",
          "payments": "inputs.payments", "output": "outputs.missing",
          "key": "order_id", "amount_column": "amount"},
+    ],
+}
+
+SPEC_TEMPLATE_DELIVERABLE = {
+    "task_id": "order_deliverable",
+    "description": "Summarise the unpaid orders as JSON and write a short report.",
+    "inputs": {"source": "in/source.csv"},
+    "outputs": {"summary": "out/summary.json", "report": "out/report.md"},
+    "core_output": "summary",
+    "checks": [
+        {"name": "summary parses", "type": "json_valid", "target": "outputs.summary",
+         "top_level": "object"},
+        {"name": "summary fields", "type": "json_keys", "target": "outputs.summary",
+         "required": ["generated_for", "totals.count", "items.*.order_id"],
+         "non_empty": ["generated_for", "items"]},
+        {"name": "item count", "type": "row_count", "target": "outputs.summary",
+         "records_key": "items", "min": 1},
+        {"name": "no duplicate items", "type": "unique_key", "target": "outputs.summary",
+         "records_key": "items", "key": "order_id"},
+        {"name": "no invented orders", "type": "subset_of", "target": "outputs.summary",
+         "records_key": "items", "key": "order_id",
+         "source": "inputs.source", "source_key": "order_id"},
+        {"name": "amounts in range", "type": "numeric_range", "target": "outputs.summary",
+         "records_key": "items", "column": "amount", "min": 0, "max": 1000000},
+        {"name": "report sections", "type": "text_contains", "target": "outputs.report",
+         "contains": ["## Summary", "## Items"], "absent": ["ERROR"]},
+        {"name": "nothing left unwritten", "type": "no_placeholders",
+         "target": "outputs.report"},
+        {"name": "input not tampered with", "type": "file_hash", "target": "inputs.source",
+         "sha256": "the digest of the file as it was handed to the agent"},
     ],
 }
 
@@ -227,7 +228,8 @@ TOOLS = [
         "name": "describe_checks",
         "title": "Describe the spec format",
         "description": (
-            "List the check types this server can run and return a spec template. Call this "
+            "List the check types this server can run, what each one verifies, and two spec "
+            "templates: a record reconciliation and a JSON-plus-report deliverable. Call this "
             "before writing a task definition."
         ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -238,8 +240,10 @@ TOOLS = [
                 "verdict_rules": {"type": "object"},
                 "check_types": {"type": "object"},
                 "spec_template": {"type": "object"},
+                "spec_template_deliverable": {"type": "object"},
             },
-            "required": ["tool_version", "verdict_rules", "check_types", "spec_template"],
+            "required": ["tool_version", "verdict_rules", "check_types", "spec_template",
+                         "spec_template_deliverable"],
         },
         "annotations": {"readOnlyHint": True, "destructiveHint": False,
                         "idempotentHint": True, "openWorldHint": False},
@@ -355,8 +359,9 @@ def tool_describe_checks(args: dict, root: Path | None) -> dict:
             "partial": "the core output exists and some checks passed",
             "fail": "the core output is missing, or no check passed",
         },
-        "check_types": CHECK_DOCS,
+        "check_types": runner.CHECK_DOCS,
         "spec_template": SPEC_TEMPLATE,
+        "spec_template_deliverable": SPEC_TEMPLATE_DELIVERABLE,
     }
 
 
