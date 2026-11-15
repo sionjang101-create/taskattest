@@ -12,7 +12,9 @@ TaskProof takes the opposite approach: you declare what "done" means, and it che
 
 - **Deterministic.** Same inputs, same verdict, same evidence digest. No LLM in the judging path.
 - **Local.** Your data never leaves the machine. No API keys, no account, no network.
-- **Zero dependencies.** Standard library only. One file, any Python 3.9+.
+- **Zero dependencies.** Standard library only — the MCP server included, written against
+  the protocol rather than an SDK. Any Python 3.9+.
+- **Agent-callable.** An MCP server over stdio, so the agent can verify its own work.
 - **Replayable.** Every run writes a manifest with input/output hashes, per-check results, and the exact command to reproduce it.
 
 ## Quick start
@@ -31,10 +33,14 @@ python runner.py --spec fixtures/case_incomplete/spec.json
 
 Exit code is `0` for `pass` and `1` otherwise, so it drops straight into CI or a pre-commit hook.
 
-Run the built-in self-test to see all three verdicts:
+Run the built-in tests — all three verdicts, then the MCP protocol:
 
 ```bash
 python selftest.py
+```
+
+```bash
+python test_mcp_server.py
 ```
 
 ## Declaring what "done" means
@@ -77,6 +83,46 @@ python selftest.py
 
 `partial` exists because "the file was produced but the contents are wrong" is the most common real failure. Treating that as success would make the tool pointless.
 
+## MCP: let the agent verify its own work
+
+TaskProof speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio, so an
+agent can check its own completion claim instead of waiting for a human to run the CLI afterwards.
+
+```bash
+python mcp_server.py --root /abs/path/you/allow
+```
+
+| Tool | Purpose |
+| --- | --- |
+| `verify_task` | Judge a task from its spec file. Returns the verdict, the evidence digest, and per-check detail |
+| `replay_evidence` | Re-run a recorded manifest and report whether the digest still matches — for testing a claimed verdict instead of trusting it |
+| `describe_checks` | Return the check types and a spec template, so an agent can write a spec before running one |
+
+Register it with any MCP client. For Claude Code or Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "taskproof": {
+      "command": "python",
+      "args": ["/abs/path/to/mcp_server.py", "--root", "/abs/path/you/allow"]
+    }
+  }
+}
+```
+
+**No SDK.** The server is written against the protocol directly, standard library only, so there
+is still nothing to install. One process serves both eras: the modern `server/discover` handshake
+(2026-07-28) and the legacy `initialize` handshake (2025-11-25 and earlier).
+
+**Pass `--root`.** A task definition names the files to read. With `--root`, any path resolving
+outside that directory is refused, including paths reached through the spec's own references.
+Without it, the server can read whatever this process can.
+
+One deliberate deviation from the modern spec: per-request `_meta` is required only after a client
+has probed `server/discover`. A client arriving through `initialize` is not forced to send it,
+because that handshake does not establish the modern dialect.
+
 ## Evidence bundle
 
 Each run writes `evidence/<task_id>/<digest>/manifest.json`:
@@ -91,7 +137,7 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified:** CSV reconciliation tasks on Windows with Python 3.13; three fixture cases (correct / missing output / incomplete output) judged 3/3 as expected; digest stable across repeated runs.
+**Verified:** CSV reconciliation tasks on Windows with Python 3.13; three fixture cases (correct / missing output / incomplete output) judged 3/3 as expected; digest stable across repeated runs. The MCP server is driven as a real subprocess by `test_mcp_server.py` — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal: 32 checks, all passing.
 
 **Not yet verified:** large files, `.xlsx`, Linux and macOS, concurrent runs, non-UTF-8 encodings beyond BOM handling.
 
@@ -99,7 +145,7 @@ Issues and pull requests are welcome, but please expect a slow, best-effort resp
 
 ## Roadmap, honestly stated
 
-Planned next: an MCP interface so agents can call TaskProof themselves, more check types, and spreadsheet inputs.
+The MCP interface is in. Planned next: more check types, spreadsheet inputs, and a Linux and macOS run of the test suite.
 
 A paid tier is planned for **team-level features** — audit history across people and runs, approval records, comparison with previous evidence, and CI reporting. Everything documented in this README stays free and Apache-2.0 licensed. The paid tier will be a separate, closed-source add-on; it will not take away what is already here.
 

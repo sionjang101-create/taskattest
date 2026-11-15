@@ -38,7 +38,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"
 CHUNK = 1 << 16
 
 
@@ -231,6 +231,7 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
     manifest["evidence_digest"] = digest
     manifest["finished_at_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     manifest["replay_command"] = f'python "{Path(__file__).resolve()}" --spec "{spec_path}"'
+    manifest["spec_path"] = str(spec_path.resolve())
     manifest["judged_by"] = "deterministic_rules_only"
     manifest["model_calls"] = 0
 
