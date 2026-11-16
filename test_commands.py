@@ -71,7 +71,7 @@ def main() -> int:
         check(d["fix"]["action"] == "approve_command" and "must not approve" in d["fix"]["note"],
               "the fix asks for a person's approval and forbids self-approval")
         line = d["fix"]["approve_with"]
-        check("approve --spec" in line and str(project / ".taskattest" / "spec.json") in line,
+        check("approve --spec" in line and str((project / ".taskattest" / "spec.json").resolve()) in line,
               f"the fix carries the exact approve command for this install: {line[:90]}")
         (project / ".taskattest" / "approved_commands.json").write_text(
             json.dumps({commands.fingerprint(touch, project.resolve()): {}}), encoding="utf-8")
