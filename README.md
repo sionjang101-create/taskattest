@@ -14,7 +14,7 @@ taskattest takes the opposite approach: you declare what "done" means, and it ch
 - **Local.** Your data never leaves the machine. No API keys, no account, no network.
 - **Zero dependencies.** Standard library only — the MCP server written against the
   protocol rather than an SDK, and the Excel reader built on `zipfile` and `ElementTree`
-  rather than a spreadsheet library. Any Python 3.9+.
+  rather than a spreadsheet library. Any Python 3.10+.
 - **Agent-callable.** An MCP server over stdio, so the agent can verify its own work.
 - **Replayable.** Every run writes a manifest with input/output hashes, per-check results, and the exact command to reproduce it.
 
