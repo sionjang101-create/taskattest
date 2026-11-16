@@ -170,7 +170,7 @@ trace check reads a time-ordered state log and judges the process.
 | `trace_eventually` | Something happens at least once |
 | `trace_final` | The last step satisfies a condition |
 | `trace_count` | How many steps match, how many times the state was entered (`edges`), or how many distinct values of a field occur (`distinct`) |
-| `trace_order` | Steps happen in order — across the whole trace, or inside each group such as a delivery cycle (`group_by`) |
+| `trace_order` | Steps happen in order — across the whole trace, or inside each group such as a job or a retry loop (`group_by`) |
 
 A trace is JSONL, a JSON array, CSV, or a raw log: with `line_prefix`, only lines that start with
 it are records, so a runner's log can be judged as it was written. UTF-16 logs are detected by
@@ -180,8 +180,8 @@ Conditions are data, never code, so nothing in a spec is ever evaluated:
 
 ```json
 { "all": [
-    { "field": "phase", "eq": "placement_release" },
-    { "within": { "fields": ["box.x", "box.z"], "point": [17.45, 9.74], "radius": 0.04 } }
+    { "field": "phase", "eq": "commit" },
+    { "within": { "fields": ["pos.x", "pos.y"], "point": [1.0, 2.0], "radius": 0.05 } }
 ] }
 ```
 
@@ -190,9 +190,9 @@ Operators are `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `startswith`, `exists`, 
 compare as decimals parsed from their text. A missing field never satisfies a comparison, an
 invariant checked over zero steps fails, and an unknown operator is an error, not a silent false.
 
-One lesson from using this on a real robot: **pair a trace check with a final-state check.** A
-log can say a box was placed when something later knocked it off. The log records the action;
-only the final state records the outcome. Require both.
+**Pair a trace check with a final-state check.** A log can record that an action happened when
+something later undid its result. The log records the action; only the final state records the
+outcome. Require both.
 
 ### Reading Excel
 
@@ -321,7 +321,7 @@ This is an early release, kept deliberately small.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
-- `test_trace.py` (29): the condition language, a robot delivery judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
+- `test_trace.py` (29): the condition language, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
 - `test_mcp_server.py` (39): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.
 

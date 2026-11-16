@@ -403,7 +403,7 @@ TRACE_DOCS = {
     "trace_order": {
         "family": "trace",
         "verifies": ("the steps happen in the given order. With group_by=<field>, the order is "
-                     "checked inside each group (for example each delivery cycle) and min_groups "
+                     "checked inside each group (for example each job or retry loop) and min_groups "
                      "of them must complete, all by default. Without it, the whole sequence must "
                      "complete min_repeats times, once by default. " + CONDITION_HELP),
         "fields": {"target": TRACE_SOURCE, "steps": "list of at least two conditions",

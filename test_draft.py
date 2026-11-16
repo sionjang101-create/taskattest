@@ -156,16 +156,16 @@ def test_documents_and_text() -> None:
 
 
 def write_log(path: Path, cycles: int, broken: int = -1) -> None:
-    phases = ["pickup", "lift", "travel", "place", "return"]
+    phases = ["fetch", "parse", "validate", "write", "report"]
     lines = ["runner start"]
     t = 0
     for c in range(cycles):
         for p in phases:
-            if c == broken and p in ("place", "return"):
+            if c == broken and p in ("write", "report"):
                 continue
             t += 1
-            lines.append("CONT " + json.dumps({"cycle": c, "phase": p, "t": t, "pos": {"y": 0.4}}))
-        lines.append("CONT_RESULT " + json.dumps({"cycle": c}))
+            lines.append("EVT " + json.dumps({"cycle": c, "phase": p, "t": t, "load": {"cpu": 0.4}}))
+        lines.append("EVT_SUMMARY " + json.dumps({"cycle": c}))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(("\r\n".join(lines) + "\r\n").encode("utf-16"))
 
@@ -177,9 +177,9 @@ def test_traces() -> None:
     r = draft.draft_spec(case, {}, {}, [case / "logs/run.log"])
     spec = r["spec"]
     order = by_type(spec, "trace_order")
-    check(order and order[0]["line_prefix"] == "CONT ", "the line prefix is detected")
+    check(order and order[0]["line_prefix"] == "EVT ", "the line prefix is detected")
     check(order and order[0]["group_by"] == "cycle", "the grouping field is found")
-    check(order and [s["eq"] for s in order[0]["steps"]] == ["pickup", "lift", "travel", "place", "return"],
+    check(order and [s["eq"] for s in order[0]["steps"]] == ["fetch", "parse", "validate", "write", "report"],
           f"the milestones are found in order: {[s['eq'] for s in order[0]['steps']] if order else None}")
     check(order and order[0]["min_groups"] == 6, "min_groups is the strictest value, not the pass count")
     check(not by_type(spec, "trace_always"), "no invariant is fitted to the run")

@@ -42,8 +42,8 @@ RECORD_SUFFIXES = (".csv", ".tsv", ".jsonl") + xlsx.SUFFIXES
 TEXT_SUFFIXES = (".md", ".txt", ".rst")
 # An instance id names one thing, so it should be unique. A reference code names a
 # kind of thing (a product, a barcode), so it repeats by design; it is only used to
-# relate an output to an input. Learned on a real robot log: barcodes B001-B003 repeat
-# once per delivery, and proposing them as unique produced a false failure.
+# relate an output to an input. The same SKU ordered twice is not a duplicate, and
+# proposing codes as unique produces false failures.
 INSTANCE_ID = re.compile(r"(^id$|_id$|^uuid$|_uuid$|^key$|_key$|^no$|_no$|번호$|아이디$)",
                          re.IGNORECASE)
 REFERENCE_ID = re.compile(r"(^code$|_code$|^sku$|_sku$|barcode|코드$)", re.IGNORECASE)
