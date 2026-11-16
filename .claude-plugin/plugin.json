@@ -1,6 +1,6 @@
 {
   "name": "taskattest",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Check a coding agent's \"done\" before it stops: deterministic rules over the files it produced, what it did, and what it changed. Blocks the stop with structured fixes, hands over to a person after repeated failures, and leaves an evidence bundle. No model calls, no dependencies.",
   "author": {
     "name": "Sion Jang",

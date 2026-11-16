@@ -331,7 +331,7 @@ def guard_spec_refs(spec_path: Path, root: Path | None) -> None:
     for item in spec.get("checks") or []:
         # "source" was missing here before 0.6.0, so --root did not confine the
         # source side of subset_of. A field may also hold a list of refs (traces).
-        for field in ("target", "source", "orders", "payments", "output", "root"):
+        for field in ("target", "source", "orders", "payments", "output", "root", "cwd"):
             refs = item.get(field)
             for ref in (refs if isinstance(refs, list) else [refs]):
                 if isinstance(ref, str):

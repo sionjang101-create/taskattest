@@ -36,8 +36,21 @@ PROCESS_NOTE = ("this checks what happened during the run, not the files left be
 SEAL_NOTE = ("an input changed after it was sealed; restore the original input, and do not edit "
              "inputs to make other checks pass")
 
+APPROVAL_NOTE = ("a person must approve this exact command with `taskattest approve --spec <spec>`; "
+                 "an agent must not approve commands it wrote, and must not edit the spec to drop the check")
 SCOPE_NOTE = ("these changes are outside what the task was allowed to touch; undo them. If one is "
               "really needed, stop and ask the person to widen the scope; do not edit the spec")
+
+
+def approve_line(ctx) -> str:
+    """The exact command a person can paste, however taskattest was installed."""
+    import sys
+    from pathlib import Path
+    spec = ctx.get("spec_path", ".taskattest/spec.json")
+    launcher = Path(__file__).resolve().parent.parent / "plugin" / "run.py"
+    if launcher.is_file():
+        return f'"{sys.executable}" "{launcher}" approve --spec "{spec}"'
+    return f'"{sys.executable}" -m taskattest approve --spec "{spec}"'
 
 
 def _file(ctx, args, field="target"):
@@ -150,6 +163,17 @@ def _fix_for(item: dict, result: dict, ctx: dict, error: str | None, helpers: di
     if kind == "no_placeholders":
         return {"action": "rewrite_lines", "file": _file(ctx, item),
                 "lines": result.get("placeholders_found", [])}
+    if kind == "command_succeeds":
+        if result.get("approved") is False:
+            return {"action": "approve_command", "command": result.get("command"), "cwd": result.get("cwd"),
+                    "approve_with": approve_line(ctx), "note": APPROVAL_NOTE}
+        fix = {"action": "make_command_pass", "command": result.get("command"), "cwd": result.get("cwd"),
+               "exit_code": result.get("exit_code"), "expect_exit": result.get("expect_exit", 0),
+               "output_tail": result.get("output_tail", ""),
+               "note": "change the work until the command passes; do not edit the command, the spec or the tests' expectations to make it pass"}
+        if result.get("timed_out"):
+            fix["timed_out"] = True
+        return fix
     if kind == "scope_changes":
         revert = result.get("denied", []) + result.get("outside_scope", [])
         return {"action": "revert_out_of_scope", "root": result.get("root", "."), "base": result.get("base", "HEAD"),
@@ -186,6 +210,12 @@ def summary(fix: dict) -> str:
         return f"total of {fix['amount_column']} in {f} should be {fix['expected_total']}, is {fix['actual_total']}"
     if a == "restore_input":
         return f"restore {f} to its sealed original"
+    if a == "approve_command":
+        return f"ask a person to approve {fix['command']} by running: {fix['approve_with']}"
+    if a == "make_command_pass":
+        if fix.get("timed_out"):
+            return f"{fix['command']} timed out; make it finish"
+        return f"{fix['command']} exited {fix['exit_code']}, expected {fix['expect_exit']}; fix the work until it passes"
     if a == "revert_out_of_scope":
         paths = [f["path"] for f in fix["files"]]
         if not paths:

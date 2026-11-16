@@ -35,6 +35,8 @@ jobs:
         run: python test_scope.py
       - name: Claude Code plugin
         run: python test_plugin.py
+      - name: Command check
+        run: python test_commands.py
       - name: MCP protocol
         run: python test_mcp_server.py
 

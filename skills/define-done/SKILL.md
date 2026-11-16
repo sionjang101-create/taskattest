@@ -27,8 +27,19 @@ a spec the gate does nothing, so this skill is how the gate gets switched on.
    ```
 
    Use `deny` for paths that must never change (for example `"**/*.lock"`).
-4. Call `describe_checks` if you need a check type that is not above.
-5. Write the spec to `.taskattest/spec.json`, run `verify_task` on it once, and
+4. If the task has tests or a build, add a command check, and tell the person
+   that it will not run until they approve it themselves:
+
+   ```json
+   {"type": "command_succeeds", "name": "tests pass", "cwd": "..",
+    "command": ["{python}", "-m", "pytest", "-q"]}
+   ```
+
+   Run `verify_task` once: the failed check's fix carries `approve_with`, the
+   exact command for this install. Give it to the person to run in their own
+   terminal. Never run it yourself.
+5. Call `describe_checks` if you need a check type that is not above.
+6. Write the spec to `.taskattest/spec.json`, run `verify_task` on it once, and
    show the person the verdict so they know what the gate will hold you to.
 
 ## Rules

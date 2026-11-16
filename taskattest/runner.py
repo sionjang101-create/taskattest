@@ -45,6 +45,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import commands as commands_mod
 from . import fixes
 from . import scope as scope_mod
 from . import trace as trace_mod
@@ -746,6 +747,25 @@ CHECKS["scope_changes"] = check_scope_changes
 CHECK_DOCS.update(scope_mod.SCOPE_DOCS)
 
 
+# ---------- checks: commands ----------
+
+def check_command_succeeds(ctx, args) -> dict:
+    cwd = ctx["resolve"](args.get("cwd", "."))
+    try:
+        out = commands_mod.check_command(cwd, args)
+    except commands_mod.CommandError as exc:
+        raise CheckFail(str(exc))
+    out["cwd"] = ctx["rel"](cwd) or "."
+    return out
+
+
+CHECKS["command_succeeds"] = check_command_succeeds
+CHECK_DOCS.update(commands_mod.COMMAND_DOCS)
+
+# Kept in the manifest's details but out of the digest: output that varies between runs.
+UNDIGESTED = ("detail", "output_tail")
+
+
 # ---------- run ----------
 
 def resolve_ref(spec_dir: Path, spec: dict, ref: str) -> Path:
@@ -769,7 +789,8 @@ def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None) -> d
         except ValueError:
             return p.as_posix()
 
-    ctx = {"resolve": lambda ref: resolve_ref(spec_dir, spec, ref), "rel": rel, "baseline": baseline}
+    ctx = {"resolve": lambda ref: resolve_ref(spec_dir, spec, ref), "rel": rel, "baseline": baseline,
+           "spec_path": str(spec_path.resolve())}
 
     def file_record(ref: str) -> dict:
         p = ctx["resolve"](ref)
@@ -827,7 +848,7 @@ def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None) -> d
         "spec_sha256": sha256_file(spec_path),
         "inputs": inputs,
         "outputs": outputs,
-        "checks": [{k: v for k, v in r.items() if k != "detail"} for r in results],
+        "checks": [{k: v for k, v in r.items() if k not in UNDIGESTED} for r in results],
         "verdict": verdict,
     }
     digest = canonical_digest(stable)
@@ -836,6 +857,8 @@ def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None) -> d
     manifest["check_details"] = []
     for r, fx in zip(results, fix_list):
         entry = {"name": r["name"], "status": r["status"], "detail": r.get("detail", "")}
+        if r.get("output_tail"):
+            entry["output_tail"] = r["output_tail"]
         if fx:
             entry["fix"] = fx
         manifest["check_details"].append(entry)
@@ -875,6 +898,8 @@ def main(argv=None) -> int:
     if argv and argv[0] == "draft":
         from . import draft
         return draft.main(argv[1:])
+    if argv and argv[0] == "approve":
+        return commands_mod.approve_main(argv[1:])
     if argv and argv[0] == "gate":
         from . import gate
         return gate.main(argv[1:])
