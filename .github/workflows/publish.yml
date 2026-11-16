@@ -29,6 +29,7 @@ jobs:
           python test_fixes.py
           python test_gate.py
           python test_scope.py
+          python test_plugin.py
           python test_mcp_server.py
       - name: Build
         run: |

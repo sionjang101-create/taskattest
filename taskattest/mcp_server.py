@@ -536,7 +536,12 @@ def handle_initialize(session: Session, params: dict) -> dict:
 
 def handle_tools_list(session: Session, params: dict, root: Path | None) -> dict:
     require_meta(session, params)
-    return wrap(session, {"tools": TOOLS})
+    payload = {"tools": TOOLS}
+    if session.result_type:
+        # 2026-07-28 list results say how long a client may cache them. Claude Code
+        # 2.1.325 fills these defaults in when they are missing; state them instead.
+        payload.update({"ttlMs": 0, "cacheScope": "private"})
+    return wrap(session, payload)
 
 
 def handle_tools_call(session: Session, params: dict, root: Path | None) -> dict:

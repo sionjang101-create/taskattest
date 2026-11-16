@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_OPTION_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/plugin/run.py\" gate start",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_OPTION_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/plugin/run.py\" gate",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

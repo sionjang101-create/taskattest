@@ -96,6 +96,10 @@ python test_scope.py
 ```
 
 ```bash
+python test_plugin.py
+```
+
+```bash
 python test_mcp_server.py
 ```
 
@@ -295,6 +299,36 @@ failure cases into a pass.
 
 `partial` exists because "the file was produced but the contents are wrong" is the most common real failure. Treating that as success would make the tool pointless.
 
+## Claude Code plugin
+
+The repository is also a Claude Code plugin and its own marketplace. The plugin carries the package
+source, so nothing is pip-installed: it needs only Python 3.10 or newer.
+
+```text
+/plugin marketplace add sionjang101-create/taskattest
+/plugin install taskattest@taskattest
+```
+
+| Part | What it does |
+| --- | --- |
+| Stop hook | runs the completion gate when the agent tries to finish |
+| SessionStart hook | records the uncommitted work already present, for the scope check |
+| MCP server | `verify_task`, `replay_evidence`, `draft_spec`, `describe_checks`, confined to the project |
+| `define-done` skill | writes `.taskattest/spec.json` with the person: what the deliverable is, what may change |
+
+Without a spec the hooks do nothing, so the plugin is quiet until a task has a definition of done.
+Set the plugin's `python` option if `python3` is not a real Python on your machine. On Windows it is
+often the Store stub; use `python` or the full path to `python.exe`. If Python cannot run, the hooks
+fail without blocking the agent.
+
+Verified with Claude Code 2.1.325 by loading the plugin from a checkout (`--plugin-dir`), not yet by
+installing it from the marketplace. In a headless run the agent was asked to define done (only
+`src/billing` and `tests` may change) and fix a bug. It loaded the skill, used `describe_checks` and
+`verify_task`, wrote the spec, fixed the bug in scope, and the Stop hook passed. With the default
+`python3` on Windows the hooks failed and the session went on, as intended. The spec it wrote had a
+file check and the scope check but nothing that runs the tests, because a check that runs commands
+does not exist yet.
+
 ## Completion gate for coding agents
 
 A coding agent's "done" is a claim. The gate checks it before the agent can stop. In a study of
@@ -437,17 +471,18 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 203 assertions across nine suites, all passing on both. CI runs the same nine suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 217 assertions across ten suites, all passing on both. CI runs the same ten suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_trace.py` (29): the condition language, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
+- `test_plugin.py` (13): the plugin manifests agree with the package version; both hooks and the MCP entry call the launcher with the configured Python; the launcher allows with no spec, blocks a failing spec, passes a fixed one, starts the MCP server and reaches the CLI.
 - `test_scope.py` (31): glob semantics; modified, new and deleted files outside the scope each reported with how to undo them; deny over allow; ignored and git-ignored paths; a subdirectory root; non-ASCII names; spec errors; the `--root` guard; the session baseline (pre-existing work left out, further changes and discarded work caught, resume keeps the baseline); the gate blocking and then passing.
 - `test_gate.py` (10): the Stop-hook protocol — no spec allows, failure blocks with fixes, the same failure hands over on the third try, a fixed task passes, every run leaves evidence.
 - `test_fixes.py` (9): an agent that follows only the fixes turns both seeded failure cases into a pass, and fixes never tell it to edit inputs or to patch over a process failure.
 - `test_examples.py` (8): the 60-second example produces exactly the output its README shows, and its input seal survives checkout on every platform.
-- `test_mcp_server.py` (39): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.
+- `test_mcp_server.py` (40): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.
 
 The package itself was verified by installing it, not by claiming it: the wheel was built, installed into a clean virtual environment, and run from outside the repository — `pip list` there shows `pip` and `taskattest` and nothing else, and both console scripts and the MCP handshake work from that install.
 

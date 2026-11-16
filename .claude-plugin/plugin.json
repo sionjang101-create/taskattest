@@ -1,0 +1,27 @@
+{
+  "name": "taskattest",
+  "version": "0.11.0",
+  "description": "Check a coding agent's \"done\" before it stops: deterministic rules over the files it produced, what it did, and what it changed. Blocks the stop with structured fixes, hands over to a person after repeated failures, and leaves an evidence bundle. No model calls, no dependencies.",
+  "author": {
+    "name": "Sion Jang",
+    "url": "https://github.com/sionjang101-create"
+  },
+  "homepage": "https://github.com/sionjang101-create/taskattest",
+  "repository": "https://github.com/sionjang101-create/taskattest",
+  "license": "Apache-2.0",
+  "keywords": ["verification", "completion gate", "hooks", "mcp", "evidence", "scope"],
+  "userConfig": {
+    "python": {
+      "type": "string",
+      "title": "Python command",
+      "description": "Python 3.10 or newer, as a command on PATH or a full path. On Windows `python3` is often the Store stub; use `python` or the full path to python.exe.",
+      "default": "python3"
+    }
+  },
+  "mcpServers": {
+    "taskattest": {
+      "command": "${user_config.python}",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/plugin/run.py", "mcp", "--root", "${CLAUDE_PROJECT_DIR}"]
+    }
+  }
+}

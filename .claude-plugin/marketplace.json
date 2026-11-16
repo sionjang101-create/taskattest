@@ -1,0 +1,17 @@
+{
+  "name": "taskattest",
+  "owner": {
+    "name": "Sion Jang",
+    "url": "https://github.com/sionjang101-create"
+  },
+  "metadata": {
+    "description": "taskattest: a deterministic completion gate for coding agents"
+  },
+  "plugins": [
+    {
+      "name": "taskattest",
+      "source": "./",
+      "description": "Check a coding agent's \"done\" before it stops, with structured fixes and an evidence bundle."
+    }
+  ]
+}

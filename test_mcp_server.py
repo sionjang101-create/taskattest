@@ -188,6 +188,8 @@ def test_modern(specs: dict) -> dict:
 
         res = result_of(s.request("tools/list", meta=META), "tools/list")
         check(res.get("resultType") == "complete", "modern tools/list carries resultType")
+        check(res.get("ttlMs") == 0 and res.get("cacheScope") == "private",
+              "modern tools/list states its cache lifetime instead of leaving the client to fill it in")
 
         reply = s.request("tools/call",
                           {"name": "verify_task", "arguments": {"spec_path": str(specs["case_ok"])}},

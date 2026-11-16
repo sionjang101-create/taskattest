@@ -33,6 +33,8 @@ jobs:
         run: python test_gate.py
       - name: Scope check
         run: python test_scope.py
+      - name: Claude Code plugin
+        run: python test_plugin.py
       - name: MCP protocol
         run: python test_mcp_server.py
 
