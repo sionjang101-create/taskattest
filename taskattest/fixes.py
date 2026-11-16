@@ -62,7 +62,20 @@ def _input_rows(ctx, args, field, key, keys, load):
 
 
 def fix_for(item: dict, result: dict, ctx: dict, error: str | None, helpers: dict):
-    """Return a fix dict for a failed check, or None when it passed."""
+    """Return a fix dict for a failed check, or None when it passed.
+
+    Where the records live inside the file (a JSON array name, an Excel sheet)
+    is added, so an agent knows which part of the file to change.
+    """
+    fix = _fix_for(item, result, ctx, error, helpers)
+    if fix and fix.get("file") is not None:
+        for key in ("records_key", "sheet", "header_row"):
+            if item.get(key) is not None:
+                fix[key] = item[key]
+    return fix
+
+
+def _fix_for(item: dict, result: dict, ctx: dict, error: str | None, helpers: dict):
     if result.get("status") != "fail":
         return None
     kind = item.get("type")

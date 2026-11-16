@@ -26,6 +26,7 @@ jobs:
           python test_trace.py
           python test_draft.py
           python test_examples.py
+          python test_fixes.py
           python test_mcp_server.py
       - name: Build
         run: |
