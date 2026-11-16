@@ -234,6 +234,31 @@ def main() -> int:
         check(run(repo, allow)["verdict"] == "pass" and bundles,
               "the gate's own evidence and state files never count against the scope")
 
+        print("\n=== subagent gate: scope only ===")
+        (repo / ".taskattest" / "spec.json").write_text(json.dumps({"task_id": "scope-demo", "checks": [
+            {"type": "scope_changes", "name": "scope", "root": "..", **allow},
+            {"type": "file_exists", "name": "report written", "target": "../report.txt"}]}), encoding="utf-8")
+        main_stop = gate.evaluate(repo)
+        check(main_stop.get("decision") == "block" and "report.txt" in main_stop.get("reason", ""),
+              "the main agent is still held to the whole definition of done")
+        sub = gate.evaluate(repo, subagent=True)
+        check(sub == {}, "a subagent that stayed in scope may finish although the task is not done yet")
+        (repo / "src/auth/login.py").write_text("OK = 0\n", encoding="utf-8")
+        sub = gate.evaluate(repo, subagent=True)
+        check(sub.get("decision") == "block" and "src/auth/login.py" in sub.get("reason", "")
+              and "subagent" in sub.get("reason", "") and "report.txt" not in sub.get("reason", ""),
+              "a subagent's out-of-scope edit is blocked, naming only the scope failure")
+        check((repo / ".taskattest" / "gate_state_subagent.json").is_file(),
+              "the subagent gate keeps its own repeat counter")
+        git(repo, "checkout", "-q", "--", "src/auth/login.py")
+        (repo / ".taskattest" / "spec.json").write_text(json.dumps({"task_id": "no-scope", "checks": [
+            {"type": "file_exists", "name": "report written", "target": "../report.txt"}]}), encoding="utf-8")
+        check(gate.evaluate(repo, subagent=True) == {}, "without a scope check the subagent gate does nothing")
+        out = subprocess.run([sys.executable, "-m", "taskattest", "gate", "subagent"], cwd=str(ROOT),
+                             input=json.dumps({"hook_event_name": "SubagentStop", "cwd": str(repo)}),
+                             capture_output=True, text=True, encoding="utf-8")
+        check(out.returncode == 0 and out.stdout.strip() == "", "`taskattest gate subagent` reads the hook event")
+
     if failures:
         for f in failures:
             print("FAILED:", f)

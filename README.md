@@ -352,6 +352,7 @@ source, so nothing is pip-installed: it needs only Python 3.10 or newer.
 | --- | --- |
 | Stop hook | runs the completion gate when the agent tries to finish |
 | SessionStart hook | records the uncommitted work already present, for the scope check |
+| SubagentStop hook | holds a subagent to the scope checks before it reports back |
 | MCP server | `verify_task`, `replay_evidence`, `draft_spec`, `describe_checks`, confined to the project |
 | `define-done` skill | writes `.taskattest/spec.json` with the person: what the deliverable is, what may change |
 
@@ -388,6 +389,7 @@ review it), and add the gate as a Stop hook. For Claude Code, in `.claude/settin
 {
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command", "command": "taskattest gate start", "timeout": 60 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "taskattest gate subagent", "timeout": 60 }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "taskattest gate", "timeout": 60 }] }]
   }
 }
@@ -399,6 +401,8 @@ review it), and add the gate as a Stop hook. For Claude Code, in `.claude/settin
 | the spec passes | lets it stop, and leaves an evidence bundle |
 | the spec fails | blocks the stop; the reason lists each failure with its structured fix |
 | the same failure a third time | stops blocking and tells the person, with the evidence. An agent that cannot fix something is not trapped (`TASKATTEST_GATE_REPEATS` changes the threshold) |
+
+`taskattest gate subagent` judges a subagent when it finishes. A subagent usually does part of the task, so the whole definition of done would block it for work that is not its job; it is held only to the `scope_changes` checks, with its own repeat counter, and stays silent when it passes. The rest waits for the main agent's stop. Verified with Claude Code 2.1.325: a subagent asked to fix the billing bug and also bump the version in `pyproject.toml` was blocked, reverted the version change and passed on its second stop; the main agent reported that the version was not bumped and why. The request was made for the test.
 
 `taskattest gate start` matters only for a `scope_changes` check: it records the uncommitted work already present when the session starts, in `.taskattest/baselines/`, so it is not blamed on the agent. A resumed or compacted session keeps its first baseline. The baseline lives in the project, so it guards against mistakes and overreach, not against an agent determined to rewrite it.
 
@@ -516,7 +520,7 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 239 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 245 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
@@ -524,7 +528,7 @@ This is an early release, kept deliberately small.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
 - `test_commands.py` (22): an unapproved command never runs and an approvals file inside the project grants nothing; approval covers the exact command and directory; exit codes decide, with `expect_exit`; varying output leaves the digest unchanged; time limits, string commands and missing programs; approve refuses without a terminal unless `--yes`; the `--root` guard; the gate blocking until an approved command passes.
 - `test_plugin.py` (13): the plugin manifests agree with the package version; both hooks and the MCP entry call the launcher with the configured Python; the launcher allows with no spec, blocks a failing spec, passes a fixed one, starts the MCP server and reaches the CLI.
-- `test_scope.py` (31): glob semantics; modified, new and deleted files outside the scope each reported with how to undo them; deny over allow; ignored and git-ignored paths; a subdirectory root; non-ASCII names; spec errors; the `--root` guard; the session baseline (pre-existing work left out, further changes and discarded work caught, resume keeps the baseline); the gate blocking and then passing.
+- `test_scope.py` (37): glob semantics; modified, new and deleted files outside the scope each reported with how to undo them; deny over allow; ignored and git-ignored paths; a subdirectory root; non-ASCII names; spec errors; the `--root` guard; the session baseline (pre-existing work left out, further changes and discarded work caught, resume keeps the baseline); the gate blocking and then passing; the subagent gate holding a subagent to scope only.
 - `test_gate.py` (10): the Stop-hook protocol — no spec allows, failure blocks with fixes, the same failure hands over on the third try, a fixed task passes, every run leaves evidence.
 - `test_fixes.py` (9): an agent that follows only the fixes turns both seeded failure cases into a pass, and fixes never tell it to edit inputs or to patch over a process failure.
 - `test_examples.py` (8): the 60-second example produces exactly the output its README shows, and its input seal survives checkout on every platform.

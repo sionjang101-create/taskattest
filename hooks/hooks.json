@@ -11,6 +11,17 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_OPTION_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/plugin/run.py\" gate subagent",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

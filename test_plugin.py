@@ -61,10 +61,12 @@ def main() -> int:
           and "--root" in mcp["args"],
           "the MCP entry runs the launcher with the configured Python and confines it to the project")
     commands = {event: [h["command"] for group in groups for h in group["hooks"]] for event, groups in hooks.items()}
-    check(set(commands) == {"SessionStart", "Stop"}, f"hooks cover session start and stop: {sorted(commands)}")
+    check(set(commands) == {"SessionStart", "SubagentStop", "Stop"},
+          f"hooks cover session start, subagent stop and stop: {sorted(commands)}")
     check(commands["SessionStart"][0].endswith("run.py\" gate start") and commands["Stop"][0].endswith("run.py\" gate")
+          and commands["SubagentStop"][0].endswith("run.py\" gate subagent")
           and all("CLAUDE_PLUGIN_OPTION_PYTHON" in c for cs in commands.values() for c in cs),
-          "both hooks call the launcher with the configured Python")
+          "every hook calls the launcher with the configured Python")
     skill = (ROOT / "skills" / "define-done" / "SKILL.md").read_text(encoding="utf-8")
     head = skill.split("---")[1] if skill.startswith("---") else ""
     check("name: define-done" in head and "description:" in head, "the skill has a name and a trigger description")

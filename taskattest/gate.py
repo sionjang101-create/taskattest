@@ -28,6 +28,11 @@ It looks for `.taskattest/spec.json` in the session's working directory.
   person. An agent that cannot fix something should not be trapped by the gate;
   the repeated attempts are themselves the evidence a human needs.
 
+Run `taskattest gate subagent` as a SubagentStop hook to judge a subagent when
+it finishes. A subagent usually does part of the task, so it is held only to the
+scope checks: an out-of-scope edit is blocked before it reports back, and the
+rest of the definition of done waits for the main agent's stop.
+
 Run `taskattest gate start` as a SessionStart hook as well when the spec has a
 scope_changes check. It records the uncommitted work already present, so the
 person's own unfinished edits are not blamed on the agent. A resumed or
@@ -47,6 +52,11 @@ from . import fixes, runner
 
 SPEC_DIR = ".taskattest"
 STATE_FILE = "gate_state.json"
+SUBAGENT_STATE_FILE = "gate_state_subagent.json"
+# A subagent usually does part of the task, so the whole definition of done would
+# block it for work that is not its job. It is judged only on what it could have
+# broken on its way: the scope.
+SUBAGENT_CHECKS = ("scope_changes",)
 BASELINE_DIR = "baselines"
 DEFAULT_REPEATS = 3
 
@@ -57,9 +67,13 @@ def _signature(manifest: dict) -> str:
     return hashlib.sha256(json.dumps(failed, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
-def _reason(manifest: dict) -> str:
-    lines = [f"taskattest gate: the task is not done ({manifest['verdict']}). "
-             f"Fix these, then finish again:"]
+def _reason(manifest: dict, subagent: bool = False) -> str:
+    if subagent:
+        lines = ["taskattest gate: this subagent changed files outside the task's scope. "
+                 "Undo these before you report back:"]
+    else:
+        lines = [f"taskattest gate: the task is not done ({manifest['verdict']}). "
+                 f"Fix these, then finish again:"]
     for d in manifest["check_details"]:
         if d["status"] != "fail":
             continue
@@ -101,19 +115,30 @@ def start(cwd: Path, session_id=None, source: str = "startup") -> dict:
     return {"systemMessage": f"taskattest gate: scope baseline recorded ({kept} uncommitted path(s) already present)"}
 
 
-def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS, session_id=None) -> dict:
-    """Decide for a stop attempt. Returns the hook output to print, or {} to allow."""
+def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS, session_id=None, subagent: bool = False) -> dict:
+    """Decide for a stop attempt. Returns the hook output to print, or {} to allow.
+
+    subagent=True is the SubagentStop hook: only scope checks run, with their own repeat counter."""
     base = Path(cwd) / SPEC_DIR
     spec = _spec(cwd)
     if not spec.is_file():
         return {}
+    only = None
+    if subagent:
+        try:
+            types = {c.get("type") for c in json.loads(spec.read_text(encoding="utf-8")).get("checks", [])}
+        except (OSError, json.JSONDecodeError):
+            return {}  # the main Stop gate reports a broken spec; a subagent is not blocked for it
+        if not types & set(SUBAGENT_CHECKS):
+            return {}
+        only = SUBAGENT_CHECKS
     base.mkdir(parents=True, exist_ok=True)
     baseline = None
     bpath = _baseline_path(cwd, session_id)
     if bpath.is_file():
         baseline = json.loads(bpath.read_text(encoding="utf-8")).get("roots")
-    manifest = runner.run(spec, base / "evidence", baseline)
-    state_path = base / STATE_FILE
+    manifest = runner.run(spec, base / "evidence", baseline, only)
+    state_path = base / (SUBAGENT_STATE_FILE if subagent else STATE_FILE)
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -122,6 +147,8 @@ def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS, session_id=None) -> 
     if manifest["verdict"] == "pass":
         state_path.write_text(json.dumps({"last": "pass", "digest": manifest["evidence_digest"]}),
                               encoding="utf-8")
+        if subagent:
+            return {}  # nothing to say when a subagent stayed in scope
         return {"systemMessage": f"taskattest gate: pass ({manifest['evidence_digest'][:12]})"}
 
     sig = _signature(manifest)
@@ -131,8 +158,8 @@ def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS, session_id=None) -> 
     if repeats >= max_repeats:
         return {"systemMessage": (f"taskattest gate: the same failure came back {repeats} times, so the "
                                   f"agent is being allowed to stop for a person to review. "
-                                  f"Evidence: {manifest['evidence_dir']}\n" + _reason(manifest))}
-    return {"decision": "block", "reason": _reason(manifest)}
+                                  f"Evidence: {manifest['evidence_dir']}\n" + _reason(manifest, subagent))}
+    return {"decision": "block", "reason": _reason(manifest, subagent)}
 
 
 def main(argv=None) -> int:
@@ -151,6 +178,8 @@ def main(argv=None) -> int:
     try:
         if argv and argv[0] == "start":
             out = start(cwd, session_id, str(event.get("source") or "startup"))
+        elif argv and argv[0] == "subagent":
+            out = evaluate(cwd, repeats, session_id, subagent=True)
         else:
             out = evaluate(cwd, repeats, session_id)
     except Exception as exc:  # a broken gate must never trap the agent

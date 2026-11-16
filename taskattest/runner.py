@@ -777,8 +777,9 @@ def resolve_ref(spec_dir: Path, spec: dict, ref: str) -> Path:
     return (spec_dir / ref).resolve()
 
 
-def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None) -> dict:
-    """baseline: {resolved scope root: snapshot}, taken before the task (see scope.snapshot)."""
+def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None, only_types=None) -> dict:
+    """baseline: {resolved scope root: snapshot}, taken before the task (see scope.snapshot).
+    only_types: run only checks of these types (the subagent gate runs only scope checks)."""
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     spec_dir = spec_path.parent.resolve()
 
@@ -804,7 +805,7 @@ def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None) -> d
 
     results = []
     fix_list = []
-    for item in spec.get("checks", []):
+    for item in [c for c in spec.get("checks", []) if only_types is None or c.get("type") in only_types]:
         kind = item.get("type")
         name = item.get("name", kind or "unnamed")
         fn = CHECKS.get(kind)
