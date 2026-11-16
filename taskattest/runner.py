@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TaskProof - did the agent actually finish the job?
+"""taskattest - did the agent actually finish the job?
 
 Checks the files an AI agent left behind against a declared definition of "done",
 using deterministic rules only, and writes a replayable evidence bundle.
@@ -44,9 +44,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import xlsx
+from . import xlsx
 
-TOOL_VERSION = "0.4.0"
+from . import __version__ as TOOL_VERSION  # single source of the version
 CHUNK = 1 << 16
 MAX_LISTED = 50  # cap on keys listed in a manifest, so evidence stays small
 
@@ -731,7 +731,7 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
         verdict = "fail"
 
     stable = {
-        "tool": "taskproof",
+        "tool": "taskattest",
         "tool_version": TOOL_VERSION,
         "task_id": spec.get("task_id"),
         "spec_sha256": sha256_file(spec_path),
@@ -747,7 +747,7 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
                                   "detail": r.get("detail", "")} for r in results]
     manifest["evidence_digest"] = digest
     manifest["finished_at_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    manifest["replay_command"] = f'python "{Path(__file__).resolve()}" --spec "{spec_path}"'
+    manifest["replay_command"] = f'python -m taskattest --spec "{spec_path}"'
     manifest["spec_path"] = str(spec_path.resolve())
     manifest["judged_by"] = "deterministic_rules_only"
     manifest["model_calls"] = 0
@@ -761,7 +761,8 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="TaskProof - verify agent task completion from files")
+    ap = argparse.ArgumentParser(
+        description="taskattest - verify agent task completion from the files it produced")
     ap.add_argument("--spec", required=True, help="path to the task definition JSON")
     ap.add_argument("--evidence-dir", default=None, help="where to write evidence bundles")
     ap.add_argument("--quiet", action="store_true", help="print nothing, use the exit code")

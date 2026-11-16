@@ -36,7 +36,7 @@ import shutil
 import sys
 from pathlib import Path
 
-import runner
+from taskattest import runner
 
 ROOT = Path(__file__).parent.resolve()
 WORK = ROOT / "fixtures"

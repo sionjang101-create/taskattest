@@ -28,12 +28,11 @@ import tempfile
 import threading
 from pathlib import Path
 
-import mcp_server
-import runner
+from taskattest import mcp_server, runner
 import selftest
 
 ROOT = Path(__file__).parent.resolve()
-SERVER = ROOT / "mcp_server.py"
+SERVER_MODULE = "taskattest.mcp_server"
 MODERN = "2026-07-28"
 LEGACY = "2025-06-18"
 
@@ -50,12 +49,12 @@ def check(condition: bool, label: str) -> None:
 
 
 class Server:
-    """A TaskProof MCP server running as a subprocess, spoken to over stdio."""
+    """A taskattest MCP server running as a subprocess, spoken to over stdio."""
 
     def __init__(self, *args: str):
         self.log = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
         self.proc = subprocess.Popen(
-            [sys.executable, str(SERVER), *args],
+            [sys.executable, "-m", SERVER_MODULE, *args],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
             cwd=str(ROOT), text=True, encoding="utf-8", bufsize=1)
         self.next_id = 0
@@ -133,7 +132,7 @@ def test_legacy(specs: dict) -> None:
         res = result_of(s.request("initialize", {
             "protocolVersion": LEGACY,
             "capabilities": {},
-            "clientInfo": {"name": "taskproof-test", "version": "1.0.0"}}), "initialize")
+            "clientInfo": {"name": "taskattest-test", "version": "1.0.0"}}), "initialize")
         check(res.get("protocolVersion") == LEGACY, "initialize echoes the requested version")
         check(res.get("serverInfo", {}).get("name") == mcp_server.SERVER_NAME,
               "serverInfo names the server")
@@ -179,7 +178,7 @@ def test_modern(specs: dict) -> dict:
     try:
         res = result_of(s.request("server/discover", meta={
             "io.modelcontextprotocol/protocolVersion": MODERN,
-            "io.modelcontextprotocol/clientInfo": {"name": "taskproof-test", "version": "1.0.0"},
+            "io.modelcontextprotocol/clientInfo": {"name": "taskattest-test", "version": "1.0.0"},
             "io.modelcontextprotocol/clientCapabilities": {}}), "server/discover")
         check(res.get("resultType") == "complete", "discover result is complete")
         check(MODERN in res.get("supportedVersions", []),

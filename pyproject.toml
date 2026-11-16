@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taskattest"
+dynamic = ["version"]
+description = "Did the agent actually finish the job? Deterministic, local-only verification of agent task results from the files they produced."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Sion Jang" }]
+keywords = ["ai-agents", "verification", "evidence", "reproducibility", "audit", "mcp"]
+dependencies = []
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/sionjang101-create/taskattest"
+Issues = "https://github.com/sionjang101-create/taskattest/issues"
+
+[project.scripts]
+taskattest = "taskattest.runner:main"
+taskattest-mcp = "taskattest.mcp_server:main"
+
+[tool.setuptools]
+packages = ["taskattest"]
+
+[tool.setuptools.dynamic]
+version = { attr = "taskattest.__version__" }

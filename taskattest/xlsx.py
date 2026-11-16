@@ -15,7 +15,7 @@
 """A minimal .xlsx reader built on zipfile and ElementTree.
 
 An .xlsx file is a ZIP of XML parts, so the standard library is enough and
-TaskProof keeps its zero-dependency promise. Only reading is implemented, and
+taskattest keeps its zero-dependency promise. Only reading is implemented, and
 only what a verification tool needs: one sheet, a header row, and cell values
 as strings.
 

@@ -1,6 +1,6 @@
-# TaskProof
+# taskattest
 
-**Did the agent actually finish the job?** TaskProof checks the files an AI agent left behind, using deterministic rules only — no model calls, no network, no dependencies. It answers `pass`, `partial`, or `fail`, and writes an evidence bundle you can replay.
+**Did the agent actually finish the job?** taskattest checks the files an AI agent left behind, using deterministic rules only — no model calls, no network, no dependencies. It answers `pass`, `partial`, or `fail`, and writes an evidence bundle you can replay.
 
 한국어 설명은 [README.ko.md](README.ko.md)에 있습니다.
 
@@ -8,7 +8,7 @@
 
 Agent frameworks tell you what the agent *did* — the trace, the tokens, the steps. They rarely tell you whether the work is *correct*. Most "task completion" metrics ask another model to judge, which costs money, varies run to run, and cannot be shown to an auditor.
 
-TaskProof takes the opposite approach: you declare what "done" means, and it checks that against the actual files.
+taskattest takes the opposite approach: you declare what "done" means, and it checks that against the actual files.
 
 - **Deterministic.** Same inputs, same verdict, same evidence digest. No LLM in the judging path.
 - **Local.** Your data never leaves the machine. No API keys, no account, no network.
@@ -18,10 +18,24 @@ TaskProof takes the opposite approach: you declare what "done" means, and it che
 - **Agent-callable.** An MCP server over stdio, so the agent can verify its own work.
 - **Replayable.** Every run writes a manifest with input/output hashes, per-check results, and the exact command to reproduce it.
 
+## Install
+
+```bash
+pip install taskattest
+```
+
+`pipx install taskattest` or `uv tool install taskattest` work too. There is nothing else to install: the wheel declares no dependencies, and a clean virtual environment with it in holds exactly one distribution.
+
+From a checkout, with nothing installed at all:
+
+```bash
+python -m taskattest --spec fixtures/case_incomplete/spec.json
+```
+
 ## Quick start
 
 ```bash
-python runner.py --spec fixtures/case_incomplete/spec.json
+taskattest --spec fixtures/case_incomplete/spec.json
 ```
 
 ```
@@ -161,11 +175,11 @@ result instead of the formula, and no merged cells, charts or pivot tables. Exce
 
 ## MCP: let the agent verify its own work
 
-TaskProof speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio, so an
+taskattest speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio, so an
 agent can check its own completion claim instead of waiting for a human to run the CLI afterwards.
 
 ```bash
-python mcp_server.py --root /abs/path/you/allow
+taskattest-mcp --root /abs/path/you/allow
 ```
 
 | Tool | Purpose |
@@ -179,9 +193,9 @@ Register it with any MCP client. For Claude Code or Claude Desktop:
 ```json
 {
   "mcpServers": {
-    "taskproof": {
-      "command": "python",
-      "args": ["/abs/path/to/mcp_server.py", "--root", "/abs/path/you/allow"]
+    "taskattest": {
+      "command": "taskattest-mcp",
+      "args": ["--root", "/abs/path/you/allow"]
     }
   }
 }
@@ -219,6 +233,8 @@ This is an early release, kept deliberately small.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_mcp_server.py` (32): the server driven as a real subprocess — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal.
 
+The package itself was verified by installing it, not by claiming it: the wheel was built, installed into a clean virtual environment, and run from outside the repository — `pip list` there shows `pip` and `taskattest` and nothing else, and both console scripts and the MCP handshake work from that install.
+
 **Not yet verified:** large files, Linux and macOS, concurrent runs, non-UTF-8 encodings beyond BOM handling, and Excel workbooks produced by anything other than the test writer — the reader is tested against XML written to the specification, not against a file saved by Excel itself.
 
 Issues and pull requests are welcome, but please expect a slow, best-effort response from a one-person project. Requests to add checks for a specific recurring task are the most useful kind.
@@ -229,10 +245,44 @@ The MCP interface, the wider check set and Excel reading are in. Planned next: a
 
 A paid tier is planned for **team-level features** — audit history across people and runs, approval records, comparison with previous evidence, and CI reporting. Everything documented in this README stays free and Apache-2.0 licensed. The paid tier will be a separate, closed-source add-on; it will not take away what is already here.
 
+## Related work
+
+**[taskproof](https://github.com/HaoHaoP/taskproof)** is an unrelated project, published before
+this one, with a near-identical premise: never trust an agent's claim that it finished. It
+dispatches work to coding agents and then runs an *acceptance command* you supply, whose exit code
+decides. It also confirms the worktree really changed, enforces forbidden paths, and keeps a
+ledger — plus a web board, a read-only REST API and a desktop console.
+
+Having read its source, the two fit together rather than compete. That project decides with an exit
+code. This one *is* an exit code worth deciding with:
+
+```
+verify_cmd = "taskattest --spec spec.json"
+```
+
+What this adds:
+
+- **Typed checks rather than a hand-written command.** An acceptance command catches only what its
+  author thought to check. `subset_of` catches a record that was never in the input and
+  `file_hash` catches an input edited so the rest of the checks would pass, whether or not anyone
+  anticipated them.
+- **It opens the artifacts.** CSV, TSV, Excel, JSON, JSONL. That project never reads a file's
+  contents; it checks that files changed, not whether the contents are right.
+- **Reproducible evidence.** The digest is content-addressed over inputs, outputs, checks and
+  verdict, with timestamps and run ids excluded, so the same inputs give the same digest on any
+  machine and `replay_evidence` re-derives it. That project's tree digest is built from size and
+  mtime — a change detector, not evidence.
+- **MCP.** The agent can call this mid-task, instead of being wrapped by a CLI adapter.
+- **Pure Python.** Its acceptance commands run through `/bin/sh`.
+
+What that project has and this does not: dispatch, worktree isolation, concurrency, forbidden-path
+enforcement, a task ledger, agent adapters, a board and a desktop app. It is a system; this is a
+checking engine. If you want the system, use theirs — and point its acceptance command here.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 Copyright 2026 Sion Jang. The license covers the code.
 
-**On the name.** An unrelated, earlier project also uses the name *taskproof* ([pypi.org/project/taskproof](https://pypi.org/project/taskproof/), first released before this repository existed, and in a similar problem space). This project is not affiliated with it, claims no rights in the name, and is looking at renaming. If you were looking for that project, it is the one on PyPI.
+**On the name.** This project was called *TaskProof* until 2026-11-16. It was renamed to avoid colliding with the unrelated, earlier [taskproof](https://pypi.org/project/taskproof/) described above. It claims no rights in that name.

@@ -24,7 +24,7 @@ The second half builds a workbook with the writer below and runs the ordinary
 checks over it, including an .xlsx output reconciled against a .csv input, so
 the cross-format path is exercised end to end rather than described.
 
-Writing .xlsx is a test helper here, not a feature: TaskProof only reads.
+Writing .xlsx is a test helper here, not a feature: taskattest only reads.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ import zipfile
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
-import runner
-import xlsx
+from taskattest import runner
+from taskattest import xlsx
 
 ROOT = Path(__file__).parent.resolve()
 WORK = ROOT / "fixtures"

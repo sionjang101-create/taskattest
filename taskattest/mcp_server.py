@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TaskProof over the Model Context Protocol, so an agent can verify its own work.
+"""taskattest over the Model Context Protocol, so an agent can verify its own work.
 
 Speaks MCP on stdio using the standard library only. No SDK, no third-party
 packages, no network. The judging path is the same deterministic one the CLI
@@ -41,10 +41,10 @@ import json
 import sys
 from pathlib import Path
 
-import runner
+from . import runner
 
-SERVER_NAME = "taskproof"
-SERVER_TITLE = "TaskProof"
+SERVER_NAME = "taskattest"
+SERVER_TITLE = "taskattest"
 SERVER_VERSION = runner.TOOL_VERSION
 
 MODERN_VERSIONS = ["2026-07-28"]
@@ -327,7 +327,7 @@ def tool_replay_evidence(args: dict, root: Path | None) -> dict:
 
     spec_raw = recorded.get("spec_path")
     if not isinstance(spec_raw, str):
-        raise ToolError("manifest has no spec_path; it was written by TaskProof before 0.2.0")
+        raise ToolError("manifest has no spec_path; it predates the spec_path field")
     spec_path = confine(Path(spec_raw), root, "spec_path recorded in the manifest")
     if not spec_path.is_file():
         raise ToolError(f"spec recorded in the manifest no longer exists: {spec_path}")
@@ -375,7 +375,7 @@ TOOL_IMPLS = {
 # ---------- transport ----------
 
 def log(message: str) -> None:
-    print(f"[taskproof] {message}", file=sys.stderr, flush=True)
+    print(f"[{SERVER_NAME}] {message}", file=sys.stderr, flush=True)
 
 
 def send(message: dict) -> None:
@@ -551,7 +551,7 @@ def serve(root: Path | None) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="TaskProof MCP server (stdio)")
+    ap = argparse.ArgumentParser(description="taskattest MCP server (stdio)")
     ap.add_argument("--root", default=None,
                     help="refuse any path outside this directory; recommended when an "
                          "agent drives the server")
