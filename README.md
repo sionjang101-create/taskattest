@@ -88,6 +88,10 @@ python test_fixes.py
 ```
 
 ```bash
+python test_gate.py
+```
+
+```bash
 python test_mcp_server.py
 ```
 
@@ -257,6 +261,36 @@ failure cases into a pass.
 
 `partial` exists because "the file was produced but the contents are wrong" is the most common real failure. Treating that as success would make the tool pointless.
 
+## Completion gate for coding agents
+
+A coding agent's "done" is a claim. The gate checks it before the agent can stop. In a study of
+20,574 real coding-agent sessions, agents misreported the status of their own work in 22.58% of
+the problems found, and 91.49% of the problems that got resolved needed the developer to push back
+([arXiv 2605.29442](https://arxiv.org/html/2605.29442v1)). The gate does that pushback with rules.
+
+Put the definition of done in `.taskattest/spec.json` (draft one with `taskattest draft`, then
+review it), and add the gate as a Stop hook. For Claude Code, in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "taskattest gate", "timeout": 60 }] }]
+  }
+}
+```
+
+| When the agent tries to stop | The gate |
+| --- | --- |
+| no `.taskattest/spec.json` | lets it stop. Absence of a definition of done is not a failure |
+| the spec passes | lets it stop, and leaves an evidence bundle |
+| the spec fails | blocks the stop; the reason lists each failure with its structured fix |
+| the same failure a third time | stops blocking and tells the person, with the evidence. An agent that cannot fix something is not trapped (`TASKATTEST_GATE_REPEATS` changes the threshold) |
+
+Verified with Claude Code 2.1.325 in headless mode: an agent told to reply "done" without
+checking a wrong output was blocked, removed the invented row and added the missing one from the
+fix, and stopped on the second gate run with a pass. Codex and Cursor also have stop hooks; the
+gate has not been tested with them yet.
+
 ## MCP: let the agent verify its own work
 
 taskattest speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio, so an
@@ -357,12 +391,13 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 162 assertions across seven suites, all passing on both. CI runs the same seven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 173 assertions across eight suites, all passing on both. CI runs the same eight suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_trace.py` (29): the condition language, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
+- `test_gate.py` (11): the Stop-hook protocol — no spec allows, failure blocks with fixes, the same failure hands over on the third try, a fixed task passes, every run leaves evidence.
 - `test_fixes.py` (9): an agent that follows only the fixes turns both seeded failure cases into a pass, and fixes never tell it to edit inputs or to patch over a process failure.
 - `test_examples.py` (8): the 60-second example produces exactly the output its README shows, and its input seal survives checkout on every platform.
 - `test_mcp_server.py` (39): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.

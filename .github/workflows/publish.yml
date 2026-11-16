@@ -27,6 +27,7 @@ jobs:
           python test_draft.py
           python test_examples.py
           python test_fixes.py
+          python test_gate.py
           python test_mcp_server.py
       - name: Build
         run: |

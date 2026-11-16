@@ -841,6 +841,9 @@ def main(argv=None) -> int:
     if argv and argv[0] == "draft":
         from . import draft
         return draft.main(argv[1:])
+    if argv and argv[0] == "gate":
+        from . import gate
+        return gate.main(argv[1:])
     ap = argparse.ArgumentParser(
         description="taskattest - verify agent task completion from the files it produced")
     ap.add_argument("--spec", required=True, help="path to the task definition JSON")
