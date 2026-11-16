@@ -27,6 +27,11 @@ It looks for `.taskattest/spec.json` in the session's working directory.
 - The same failure again and again: the gate stops blocking and hands over to a
   person. An agent that cannot fix something should not be trapped by the gate;
   the repeated attempts are themselves the evidence a human needs.
+
+Run `taskattest gate start` as a SessionStart hook as well when the spec has a
+scope_changes check. It records the uncommitted work already present, so the
+person's own unfinished edits are not blamed on the agent. A resumed or
+compacted session keeps the baseline it started with.
 """
 
 from __future__ import annotations
@@ -35,12 +40,14 @@ import hashlib
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import fixes, runner
 
 SPEC_DIR = ".taskattest"
 STATE_FILE = "gate_state.json"
+BASELINE_DIR = "baselines"
 DEFAULT_REPEATS = 3
 
 
@@ -66,14 +73,46 @@ def _reason(manifest: dict) -> str:
     return "\n".join(lines)
 
 
-def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS) -> dict:
+def _spec(cwd: Path) -> Path:
+    return Path(os.environ.get("TASKATTEST_SPEC") or Path(cwd) / SPEC_DIR / "spec.json")
+
+
+def _baseline_path(cwd: Path, session_id) -> Path:
+    name = "".join(c for c in str(session_id or "default") if c.isalnum() or c in "-_")[:80] or "default"
+    return Path(cwd) / SPEC_DIR / BASELINE_DIR / f"{name}.json"
+
+
+def start(cwd: Path, session_id=None, source: str = "startup") -> dict:
+    """SessionStart: record the uncommitted work that is not the agent's. Never blocks."""
+    spec = _spec(cwd)
+    if not spec.is_file():
+        return {}
+    path = _baseline_path(cwd, session_id)
+    if source in ("resume", "compact") and path.is_file():
+        return {}  # the task is still the one that started earlier
+    roots = runner.scope_baseline(spec)
+    if not roots:
+        return {}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"session_id": session_id, "source": source,
+                                "taken_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                "roots": roots}, ensure_ascii=False, indent=2), encoding="utf-8")
+    kept = sum(len(r["files"]) for r in roots.values())
+    return {"systemMessage": f"taskattest gate: scope baseline recorded ({kept} uncommitted path(s) already present)"}
+
+
+def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS, session_id=None) -> dict:
     """Decide for a stop attempt. Returns the hook output to print, or {} to allow."""
     base = Path(cwd) / SPEC_DIR
-    spec = Path(os.environ.get("TASKATTEST_SPEC") or base / "spec.json")
+    spec = _spec(cwd)
     if not spec.is_file():
         return {}
     base.mkdir(parents=True, exist_ok=True)
-    manifest = runner.run(spec, base / "evidence")
+    baseline = None
+    bpath = _baseline_path(cwd, session_id)
+    if bpath.is_file():
+        baseline = json.loads(bpath.read_text(encoding="utf-8")).get("roots")
+    manifest = runner.run(spec, base / "evidence", baseline)
     state_path = base / STATE_FILE
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -97,18 +136,23 @@ def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS) -> dict:
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     try:
         event = json.loads(raw) if raw.strip() else {}
     except json.JSONDecodeError:
         event = {}
     cwd = Path(event.get("cwd") or os.getcwd())
+    session_id = event.get("session_id")
     try:
         repeats = int(os.environ.get("TASKATTEST_GATE_REPEATS", DEFAULT_REPEATS))
     except ValueError:
         repeats = DEFAULT_REPEATS
     try:
-        out = evaluate(cwd, repeats)
+        if argv and argv[0] == "start":
+            out = start(cwd, session_id, str(event.get("source") or "startup"))
+        else:
+            out = evaluate(cwd, repeats, session_id)
     except Exception as exc:  # a broken gate must never trap the agent
         out = {"systemMessage": f"taskattest gate could not run and did not block: {type(exc).__name__}: {exc}"}
     if out:

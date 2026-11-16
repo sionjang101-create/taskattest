@@ -36,6 +36,9 @@ PROCESS_NOTE = ("this checks what happened during the run, not the files left be
 SEAL_NOTE = ("an input changed after it was sealed; restore the original input, and do not edit "
              "inputs to make other checks pass")
 
+SCOPE_NOTE = ("these changes are outside what the task was allowed to touch; undo them. If one is "
+              "really needed, stop and ask the person to widen the scope; do not edit the spec")
+
 
 def _file(ctx, args, field="target"):
     ref = args.get(field)
@@ -147,6 +150,14 @@ def _fix_for(item: dict, result: dict, ctx: dict, error: str | None, helpers: di
     if kind == "no_placeholders":
         return {"action": "rewrite_lines", "file": _file(ctx, item),
                 "lines": result.get("placeholders_found", [])}
+    if kind == "scope_changes":
+        revert = result.get("denied", []) + result.get("outside_scope", [])
+        return {"action": "revert_out_of_scope", "root": result.get("root", "."), "base": result.get("base", "HEAD"),
+                "files": [{"path": f["path"], "status": f["status"],
+                           "how": ("delete it" if f["status"] in ("untracked", "added") else
+                                   f"restore it from {result.get('base', 'HEAD')}")} for f in revert],
+                "changed": len(result.get("changed", [])), "max_changed": result.get("max_changed"),
+                "note": SCOPE_NOTE}
     if kind and kind.startswith("trace_"):
         fix = {"action": "rerun_task", "check": kind, "note": PROCESS_NOTE}
         for k in ("first_violation", "incomplete_groups", "count", "final_step", "violations"):
@@ -175,6 +186,11 @@ def summary(fix: dict) -> str:
         return f"total of {fix['amount_column']} in {f} should be {fix['expected_total']}, is {fix['actual_total']}"
     if a == "restore_input":
         return f"restore {f} to its sealed original"
+    if a == "revert_out_of_scope":
+        paths = [f["path"] for f in fix["files"]]
+        if not paths:
+            return f"{fix['changed']} files changed, more than {fix['max_changed']}; undo the changes the task did not need"
+        return f"undo changes outside the task scope: {', '.join(paths[:5])}" + (" ..." if len(paths) > 5 else "")
     if a == "rerun_task":
         return "run the step again; editing outputs cannot fix a process failure"
     if a == "create_file":

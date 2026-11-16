@@ -92,6 +92,10 @@ python test_gate.py
 ```
 
 ```bash
+python test_scope.py
+```
+
+```bash
 python test_mcp_server.py
 ```
 
@@ -141,7 +145,7 @@ A deliverable task — a JSON summary plus a written report — is declared the 
 
 ### Checks available today
 
-Eighteen check types over four families. Trace checks are described in their own section below.
+Nineteen check types over five families. Trace and scope checks are described in their own sections below.
 
 **Any artifact**
 
@@ -182,6 +186,36 @@ rest of the checks would pass.
 
 Numbers are compared in integer minor units, so no float arithmetic is involved anywhere and
 precision is two decimals. A check that cannot be carried out fails; it never passes by default.
+
+### Scope: what the agent changed, not only what it delivered
+
+A correct deliverable can come with edits nobody asked for: a config, a lockfile, a test that was
+in the way, a file in another module. In the same study of 20,574 sessions, constraint violations
+were 38.33% of the problems found and overreach 10.20%. `scope_changes` reads the git working tree
+and fails when a changed path is outside the declared scope.
+
+```json
+{"type": "scope_changes", "name": "only billing and its tests", "root": "..",
+ "allow": ["src/billing/**", "tests/**"], "deny": ["**/*.lock"]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `allow` | globs the task may change. `*` stays in one directory, `**` crosses directories |
+| `deny` | globs that may never change, even when `allow` covers them |
+| `ignore` | globs left out of the judgment |
+| `root` | the directory to judge, relative to the spec (`..` for a spec in `.taskattest/`) |
+| `base` | the git ref to compare against, default `HEAD` |
+| `max_changed` | an upper bound on the number of changed files |
+
+Modified, added, deleted and new untracked files all count; files git ignores and anything under
+`.taskattest/` do not. Each changed file is recorded with its content hash. The fix lists every
+out-of-scope file with how to undo it (restore from the base, or delete a new file) and tells the
+agent to ask the person instead of editing the spec.
+
+The person's own uncommitted work is not the agent's. With the gate's start hook (below), the paths
+already dirty when the session started are recorded with their hashes and left out, unless the
+agent changes them further. Discarding the person's uncommitted edit is reported as a change too.
 
 ### Traces: what the agent did, not only what it left behind
 
@@ -274,6 +308,7 @@ review it), and add the gate as a Stop hook. For Claude Code, in `.claude/settin
 ```json
 {
   "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "taskattest gate start", "timeout": 60 }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "taskattest gate", "timeout": 60 }] }]
   }
 }
@@ -286,10 +321,21 @@ review it), and add the gate as a Stop hook. For Claude Code, in `.claude/settin
 | the spec fails | blocks the stop; the reason lists each failure with its structured fix |
 | the same failure a third time | stops blocking and tells the person, with the evidence. An agent that cannot fix something is not trapped (`TASKATTEST_GATE_REPEATS` changes the threshold) |
 
+`taskattest gate start` matters only for a `scope_changes` check: it records the uncommitted work already present when the session starts, in `.taskattest/baselines/`, so it is not blamed on the agent. A resumed or compacted session keeps its first baseline. The baseline lives in the project, so it guards against mistakes and overreach, not against an agent determined to rewrite it.
+
 Verified with Claude Code 2.1.325 in headless mode: an agent told to reply "done" without
 checking a wrong output was blocked, removed the invented row and added the missing one from the
 fix, and stopped on the second gate run with a pass. Codex and Cursor also have stop hooks; the
 gate has not been tested with them yet.
+
+The scope check was run the same way, in a throwaway repository whose scope allowed `src/billing/**`
+and `tests/**`. The first live run exposed a false positive: files that existed before the session
+were blamed on the agent, which correctly refused to delete them and was handed over to a person.
+That is what the start-hook baseline fixes. After the fix, an agent asked only to fix the billing bug
+stopped with a pass. An agent asked also to bump the version in `pyproject.toml` made both edits, was
+blocked, did not edit the spec or revert the edit the person had asked for, and asked the person to
+choose; the gate handed over on the third identical failure. The second case was induced by the
+request, not observed in the wild.
 
 ## MCP: let the agent verify its own work
 
@@ -391,12 +437,13 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 172 assertions across eight suites, all passing on both. CI runs the same eight suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 203 assertions across nine suites, all passing on both. CI runs the same nine suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_trace.py` (29): the condition language, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
+- `test_scope.py` (31): glob semantics; modified, new and deleted files outside the scope each reported with how to undo them; deny over allow; ignored and git-ignored paths; a subdirectory root; non-ASCII names; spec errors; the `--root` guard; the session baseline (pre-existing work left out, further changes and discarded work caught, resume keeps the baseline); the gate blocking and then passing.
 - `test_gate.py` (10): the Stop-hook protocol — no spec allows, failure blocks with fixes, the same failure hands over on the third try, a fixed task passes, every run leaves evidence.
 - `test_fixes.py` (9): an agent that follows only the fixes turns both seeded failure cases into a pass, and fixes never tell it to edit inputs or to patch over a process failure.
 - `test_examples.py` (8): the 60-second example produces exactly the output its README shows, and its input seal survives checkout on every platform.

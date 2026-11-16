@@ -46,6 +46,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import fixes
+from . import scope as scope_mod
 from . import trace as trace_mod
 from . import xlsx
 
@@ -728,6 +729,23 @@ for _name, _fn in trace_mod.TRACE_CHECKS.items():
 CHECK_DOCS.update(trace_mod.TRACE_DOCS)
 
 
+# ---------- checks: repository scope ----------
+
+def check_scope_changes(ctx, args) -> dict:
+    root = ctx["resolve"](args.get("root", "."))
+    try:
+        snap = (ctx.get("baseline") or {}).get(str(root)) if ctx.get("baseline") is not None else None
+        out = scope_mod.check_scope(root, args, snap)
+    except scope_mod.ScopeError as exc:
+        raise CheckFail(str(exc))
+    out["root"] = ctx["rel"](root) or "."
+    return out
+
+
+CHECKS["scope_changes"] = check_scope_changes
+CHECK_DOCS.update(scope_mod.SCOPE_DOCS)
+
+
 # ---------- run ----------
 
 def resolve_ref(spec_dir: Path, spec: dict, ref: str) -> Path:
@@ -739,7 +757,8 @@ def resolve_ref(spec_dir: Path, spec: dict, ref: str) -> Path:
     return (spec_dir / ref).resolve()
 
 
-def run(spec_path: Path, evidence_root: Path) -> dict:
+def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None) -> dict:
+    """baseline: {resolved scope root: snapshot}, taken before the task (see scope.snapshot)."""
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     spec_dir = spec_path.parent.resolve()
 
@@ -750,7 +769,7 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
         except ValueError:
             return p.as_posix()
 
-    ctx = {"resolve": lambda ref: resolve_ref(spec_dir, spec, ref), "rel": rel}
+    ctx = {"resolve": lambda ref: resolve_ref(spec_dir, spec, ref), "rel": rel, "baseline": baseline}
 
     def file_record(ref: str) -> dict:
         p = ctx["resolve"](ref)
@@ -836,6 +855,21 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
     return manifest
 
 
+def scope_baseline(spec_path: Path) -> dict:
+    """Snapshot every scope_changes root in a spec, keyed by resolved root."""
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec_dir = spec_path.parent.resolve()
+    out = {}
+    for item in spec.get("checks", []):
+        if item.get("type") == "scope_changes":
+            root = resolve_ref(spec_dir, spec, item.get("root", "."))
+            try:
+                out[str(root)] = scope_mod.snapshot(root, item)
+            except scope_mod.ScopeError:
+                pass  # the check itself will report it
+    return out
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "draft":
@@ -849,11 +883,17 @@ def main(argv=None) -> int:
     ap.add_argument("--spec", required=True, help="path to the task definition JSON")
     ap.add_argument("--evidence-dir", default=None, help="where to write evidence bundles")
     ap.add_argument("--quiet", action="store_true", help="print nothing, use the exit code")
+    ap.add_argument("--baseline", default=None,
+                    help="scope baseline JSON written by `taskattest gate start`")
     a = ap.parse_args(argv)
 
     spec_path = Path(a.spec).resolve()
     evidence_root = Path(a.evidence_dir).resolve() if a.evidence_dir else spec_path.parent / "evidence"
-    m = run(spec_path, evidence_root)
+    baseline = None
+    if a.baseline:
+        data = json.loads(Path(a.baseline).read_text(encoding="utf-8"))
+        baseline = data.get("roots", data)
+    m = run(spec_path, evidence_root, baseline)
 
     if not a.quiet:
         print(f"[{m['verdict'].upper()}] {m['task_id']}  (model calls: {m['model_calls']})")
