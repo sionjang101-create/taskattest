@@ -213,7 +213,7 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.13, 76 assertions across three suites, all passing.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 76 assertions across three suites, all passing on both.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
@@ -233,4 +233,6 @@ A paid tier is planned for **team-level features** — audit history across peop
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-Copyright 2026 Sion Jang. The license covers the code; it does not grant rights to the TaskProof name or marks.
+Copyright 2026 Sion Jang. The license covers the code.
+
+**On the name.** An unrelated, earlier project also uses the name *taskproof* ([pypi.org/project/taskproof](https://pypi.org/project/taskproof/), first released before this repository existed, and in a similar problem space). This project is not affiliated with it, claims no rights in the name, and is looking at renaming. If you were looking for that project, it is the one on PyPI.
