@@ -28,6 +28,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+import mcp_server
 import runner
 import selftest
 
@@ -134,7 +135,8 @@ def test_legacy(specs: dict) -> None:
             "capabilities": {},
             "clientInfo": {"name": "taskproof-test", "version": "1.0.0"}}), "initialize")
         check(res.get("protocolVersion") == LEGACY, "initialize echoes the requested version")
-        check(res.get("serverInfo", {}).get("name") == "taskproof", "serverInfo names the server")
+        check(res.get("serverInfo", {}).get("name") == mcp_server.SERVER_NAME,
+              "serverInfo names the server")
         check("tools" in res.get("capabilities", {}), "server advertises the tools capability")
         check("resultType" not in res, "no resultType on the legacy path")
 
@@ -183,7 +185,7 @@ def test_modern(specs: dict) -> dict:
         check(MODERN in res.get("supportedVersions", []),
               f"discover advertises {MODERN}: {res.get('supportedVersions')}")
         check(res.get("_meta", {}).get("io.modelcontextprotocol/serverInfo", {}).get("name")
-              == "taskproof", "discover carries serverInfo in _meta")
+              == mcp_server.SERVER_NAME, "discover carries serverInfo in _meta")
 
         res = result_of(s.request("tools/list", meta=META), "tools/list")
         check(res.get("resultType") == "complete", "modern tools/list carries resultType")
