@@ -59,6 +59,10 @@ python test_xlsx.py
 ```
 
 ```bash
+python test_trace.py
+```
+
+```bash
 python test_mcp_server.py
 ```
 
@@ -108,7 +112,7 @@ A deliverable task — a JSON summary plus a written report — is declared the 
 
 ### Checks available today
 
-Thirteen check types over three artifact families.
+Eighteen check types over four families. Trace checks are described in their own section below.
 
 **Any artifact**
 
@@ -149,6 +153,42 @@ rest of the checks would pass.
 
 Numbers are compared in integer minor units, so no float arithmetic is involved anywhere and
 precision is two decimals. A check that cannot be carried out fails; it never passes by default.
+
+### Traces: what the agent did, not only what it left behind
+
+Output checks ask whether the files are right. Many agent and robot failures happen on the way:
+a forbidden step taken and undone, steps done out of order, a collision recovered by luck. A
+trace check reads a time-ordered state log and judges the process.
+
+| Type | What it verifies |
+| --- | --- |
+| `trace_always` | An invariant holds at every step, or at every step where `when` holds |
+| `trace_eventually` | Something happens at least once |
+| `trace_final` | The last step satisfies a condition |
+| `trace_count` | How many steps match, how many times the state was entered (`edges`), or how many distinct values of a field occur (`distinct`) |
+| `trace_order` | Steps happen in order — across the whole trace, or inside each group such as a delivery cycle (`group_by`) |
+
+A trace is JSONL, a JSON array, CSV, or a raw log: with `line_prefix`, only lines that start with
+it are records, so a runner's log can be judged as it was written. UTF-16 logs are detected by
+their byte order mark. `target` may list several files, read in order.
+
+Conditions are data, never code, so nothing in a spec is ever evaluated:
+
+```json
+{ "all": [
+    { "field": "phase", "eq": "placement_release" },
+    { "within": { "fields": ["box.x", "box.z"], "point": [17.45, 9.74], "radius": 0.04 } }
+] }
+```
+
+Operators are `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `startswith`, `exists`, combined with
+`all`, `any`, `not`; `within` is a distance, compared squared so no square root is taken. Numbers
+compare as decimals parsed from their text. A missing field never satisfies a comparison, an
+invariant checked over zero steps fails, and an unknown operator is an error, not a silent false.
+
+One lesson from using this on a real robot: **pair a trace check with a final-state check.** A
+log can say a box was placed when something later knocked it off. The log records the action;
+only the final state records the outcome. Require both.
 
 ### Reading Excel
 
@@ -227,10 +267,11 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 76 assertions across three suites, all passing on both.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 105 assertions across four suites, all passing on both.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
+- `test_trace.py` (29): the condition language, a robot delivery judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_mcp_server.py` (32): the server driven as a real subprocess — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal.
 
 The package itself was verified by installing it, not by claiming it: the wheel was built, installed into a clean virtual environment, and run from outside the repository — `pip list` there shows `pip` and `taskattest` and nothing else, and both console scripts and the MCP handshake work from that install.

@@ -24,8 +24,9 @@ Design rules
 - Three verdicts only: pass / partial / fail.
 - Fail closed. A check that cannot be carried out fails; it never passes by default.
 
-Checks cover three artifact families: record sets (CSV, TSV, Excel, JSON arrays,
-JSONL), JSON documents, and text deliverables. Two of them target failures specific to
+Checks cover four families: record sets (CSV, TSV, Excel, JSON arrays, JSONL),
+JSON documents, text deliverables, and traces - what an agent or robot did, step
+by step, read from a state log. Two of them target failures specific to
 agents: `subset_of` catches invented records, and `file_hash` catches an input
 edited to make the other checks pass.
 
@@ -44,6 +45,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import trace as trace_mod
 from . import xlsx
 
 from . import __version__ as TOOL_VERSION  # single source of the version
@@ -664,6 +666,50 @@ CHECK_DOCS = {
                    "extra_patterns": "add to the default list"},
     },
 }
+
+
+# ---------- checks: traces ----------
+
+def _trace_records(ctx, args) -> list:
+    """Concatenate one or more trace files, in the order given."""
+    refs = args.get("target")
+    if isinstance(refs, str):
+        refs = [refs]
+    if not refs:
+        raise CheckFail("target is required: one trace file or a list of them")
+
+    def records_loader(path, records_key=None):
+        return load_records(path, records_key=records_key, sheet=args.get("sheet"),
+                            header_row=args.get("header_row", 1))
+
+    records = []
+    for ref in refs:
+        path = ctx["resolve"](ref)
+        if not path.is_file():
+            raise CheckFail(f"trace file not found: {ctx['rel'](path)}")
+        try:
+            records += trace_mod.load_trace(path, args.get("line_prefix"),
+                                            args.get("records_key"), records_loader)
+        except (trace_mod.TraceError, ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise CheckFail(str(exc))
+    return records
+
+
+def _trace_check(fn):
+    def check(ctx, args) -> dict:
+        records = _trace_records(ctx, args)
+        try:
+            out = fn(records, args)
+        except trace_mod.TraceError as exc:
+            raise CheckFail(str(exc))
+        out["steps_in_trace"] = len(records)
+        return out
+    return check
+
+
+for _name, _fn in trace_mod.TRACE_CHECKS.items():
+    CHECKS[_name] = _trace_check(_fn)
+CHECK_DOCS.update(trace_mod.TRACE_DOCS)
 
 
 # ---------- run ----------

@@ -276,11 +276,14 @@ def guard_spec_refs(spec_path: Path, root: Path | None) -> None:
         for name, value in (spec.get(group) or {}).items():
             confine(spec_dir / value, root, f"{group}.{name}")
     for item in spec.get("checks") or []:
-        for field in ("target", "orders", "payments", "output"):
-            ref = item.get(field)
-            if isinstance(ref, str):
-                confine(runner.resolve_ref(spec_dir, spec, ref), root,
-                        f"check {item.get('name', item.get('type', '?'))}.{field}")
+        # "source" was missing here before 0.6.0, so --root did not confine the
+        # source side of subset_of. A field may also hold a list of refs (traces).
+        for field in ("target", "source", "orders", "payments", "output"):
+            refs = item.get(field)
+            for ref in (refs if isinstance(refs, list) else [refs]):
+                if isinstance(ref, str):
+                    confine(runner.resolve_ref(spec_dir, spec, ref), root,
+                            f"check {item.get('name', item.get('type', '?'))}.{field}")
 
 
 # ---------- tools ----------
