@@ -1,0 +1,48 @@
+{
+  "task_id": "unpaid_orders",
+  "description": "An agent was asked to list the orders with no payment. It replied: done, 3 unpaid orders.",
+  "inputs": {
+    "orders": "in/orders.csv",
+    "payments": "in/payments.csv"
+  },
+  "outputs": {
+    "unpaid": "out/unpaid.csv"
+  },
+  "core_output": "unpaid",
+  "checks": [
+    {
+      "name": "output exists",
+      "type": "file_exists",
+      "target": "outputs.unpaid"
+    },
+    {
+      "name": "inputs untouched",
+      "type": "file_hash",
+      "target": "inputs.orders",
+      "sha256": "5062990293cf485708f1f487fc90185bc9843db8be8d80b2b89c2fc509e6ed6d"
+    },
+    {
+      "name": "no invented orders",
+      "type": "subset_of",
+      "target": "outputs.unpaid",
+      "key": "order_id",
+      "source": "inputs.orders"
+    },
+    {
+      "name": "every unpaid order listed once",
+      "type": "reconcile_rows",
+      "orders": "inputs.orders",
+      "payments": "inputs.payments",
+      "output": "outputs.unpaid",
+      "key": "order_id"
+    },
+    {
+      "name": "total matches",
+      "type": "amount_sum",
+      "orders": "inputs.orders",
+      "payments": "inputs.payments",
+      "output": "outputs.unpaid",
+      "key": "order_id"
+    }
+  ]
+}

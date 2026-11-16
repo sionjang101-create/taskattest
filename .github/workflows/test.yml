@@ -25,6 +25,8 @@ jobs:
         run: python test_trace.py
       - name: Drafting
         run: python test_draft.py
+      - name: Examples
+        run: python test_examples.py
       - name: MCP protocol
         run: python test_mcp_server.py
 

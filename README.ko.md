@@ -16,6 +16,17 @@ taskattest는 반대로 갑니다. **"끝났다"의 조건을 사람이 먼저 �
 - **에이전트가 직접 호출.** stdio MCP 서버로 붙습니다.
 - **재현 가능.** 매 실행마다 입력·산출물 해시, 체크별 결과, 재현 명령을 담은 기록을 남깁니다.
 
+## 60초 체험
+
+```bash
+git clone https://github.com/sionjang101-create/taskattest && cd taskattest
+python -m taskattest --spec examples/agent_says_done/spec.json
+```
+
+에이전트에게 미입금 주문 목록을 시켰고 "완료, 미입금 3건"이라고 답했습니다. 3건이 나와야 했고 3건이 나왔습니다.
+그런데도 답은 틀렸습니다. 한 건은 지어낸 주문이고 한 건은 빠졌습니다.
+[examples/agent_says_done](examples/agent_says_done/README.md)을 보십시오.
+
 ## 설치
 
 ```bash
@@ -50,6 +61,10 @@ python test_trace.py
 
 ```bash
 python test_draft.py
+```
+
+```bash
+python test_examples.py
 ```
 
 ```bash
@@ -237,12 +252,13 @@ MCP 클라이언트에 등록하면 됩니다. Claude Code나 Claude Desktop이�
 
 ## 검증한 것과 아직 아닌 것
 
-**검증:** 윈도·파이썬 3.11.15와 3.12.10에서 다섯 묶음 **145개 항목 전부 통과**했습니다. 두 버전 모두입니다. CI가 같은 다섯 묶음을 리눅스·맥·윈도와 파이썬 3.10·3.12·3.13에서 돌리고, 빌드한 wheel이 다른 것 없이 단독으로 설치되는지도 확인합니다.
+**검증:** 윈도·파이썬 3.11.15와 3.12.10에서 여섯 묶음 **153개 항목 전부 통과**했습니다. 두 버전 모두입니다. CI가 같은 여섯 묶음을 리눅스·맥·윈도와 파이썬 3.10·3.12·3.13에서 돌리고, 빌드한 wheel이 다른 것 없이 단독으로 설치되는지도 확인합니다.
 
 - `selftest.py`(19개): CSV 대조와 JSON+보고서 산출물. 다섯 경우 판정이 기대와 일치하고 반복 실행 digest도 일치합니다. 일부러 망가뜨린 산출물에서 심어 둔 결함 일곱 개가 각자 자기 체크에 잡히고 그 밖에는 실패하지 않습니다.
 - `test_xlsx.py`(25개): XML을 손으로 적은 워크북으로 까다로운 셀마다 리더가 무엇을 돌려주는지 정확히 확인하고, 이어서 엑셀 산출물을 CSV 입력과 대조하는 업무 한 건을 끝까지 판정합니다.
 - `test_trace.py`(29개): 조건 언어, 잡음 줄이 섞인 UTF-16 원본 로그로 판정한 여러 단계 작업 — 정상 실행은 모든 trace 체크를 통과하고 결함 실행은 그 결함을 노린 체크만 실패 — 실패 기본값, 목록 target의 `--root` 제한.
 - `test_draft.py`(33개): 초안이 무엇을 제안하고 무엇을 거부하는가 — 틀린 결과물(중복 ID, 지어낸 주문, 음수 금액)은 자기 초안에서도 실패, 코드는 중복 금지를 걸지 않음, 입력에 환불이 있으면 범위를 빼고 이유를 적음, trace, 결정성, 덮어쓰기 방지.
+- `test_examples.py`(8개): 60초 예제가 README에 적힌 출력을 정확히 내는지, 입력 봉인이 어느 플랫폼에서 받아도 유지되는지.
 - `test_mcp_server.py`(39개): 서버를 실제 하위 프로세스로 띄워 두 세대 핸드셰이크, 도구 4개, 오류 규약, 증거 재현, `--root` 거부, 초안 경고를 포함한 `draft_spec`을 확인합니다.
 
 패키지 자체는 **주장이 아니라 설치로** 확인했습니다. wheel을 빌드해 깨끗한 가상환경에 설치하고 저장소 밖에서 실행했습니다. 그 환경의 `pip list`에는 `pip`과 `taskattest`뿐이고, 콘솔 스크립트 두 개와 MCP 핸드셰이크가 그 설치본에서 동작합니다.
@@ -266,9 +282,15 @@ MCP 연결, 체크 확장, 엑셀 읽기는 붙였습니다. 다음은 리눅스
 **그쪽 소스를 읽어 보고 내린 결론은, 경쟁이 아니라 서로 맞물린다는 것입니다.**
 그쪽은 종료 코드로 판정합니다. 이쪽은 **판정에 쓸 만한 종료 코드 그 자체**입니다.
 
+```toml
+[[taskgroup]]
+id = "reports"
+project = "reports"
+verify = "taskattest --spec .taskattest/spec.json"
+verify_kind = "check"
 ```
-verify_cmd = "taskattest --spec spec.json"
-```
+
+[examples/with_taskproof](examples/with_taskproof/README.md)를 보십시오. 그쪽 문서의 설정 형식을 따른 것이고, taskproof 안에서 실제로 돌려 보지는 않았습니다.
 
 이쪽이 더하는 것은 이렇습니다.
 

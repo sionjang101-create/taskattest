@@ -1,5 +1,7 @@
 # taskattest
 
+<!-- mcp-name: io.github.sionjang101-create/taskattest -->
+
 **Did the agent actually finish the job?** taskattest checks the files an AI agent left behind, using deterministic rules only — no model calls, no network, no dependencies. It answers `pass`, `partial`, or `fail`, and writes an evidence bundle you can replay.
 
 한국어 설명은 [README.ko.md](README.ko.md)에 있습니다.
@@ -17,6 +19,17 @@ taskattest takes the opposite approach: you declare what "done" means, and it ch
   rather than a spreadsheet library. Any Python 3.10+.
 - **Agent-callable.** An MCP server over stdio, so the agent can verify its own work.
 - **Replayable.** Every run writes a manifest with input/output hashes, per-check results, and the exact command to reproduce it.
+
+## Try it in 60 seconds
+
+```bash
+git clone https://github.com/sionjang101-create/taskattest && cd taskattest
+python -m taskattest --spec examples/agent_says_done/spec.json
+```
+
+An agent was asked to list the unpaid orders and replied *done, 3 unpaid orders*. Three were
+expected and three were listed — and the answer is still wrong: one order was invented and one was
+missed. See [examples/agent_says_done](examples/agent_says_done/README.md).
 
 ## Install
 
@@ -64,6 +77,10 @@ python test_trace.py
 
 ```bash
 python test_draft.py
+```
+
+```bash
+python test_examples.py
 ```
 
 ```bash
@@ -317,12 +334,13 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 145 assertions across five suites, all passing on both. CI runs the same five suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 153 assertions across six suites, all passing on both. CI runs the same six suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_trace.py` (29): the condition language, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
+- `test_examples.py` (8): the 60-second example produces exactly the output its README shows, and its input seal survives checkout on every platform.
 - `test_mcp_server.py` (39): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.
 
 The package itself was verified by installing it, not by claiming it: the wheel was built, installed into a clean virtual environment, and run from outside the repository — `pip list` there shows `pip` and `taskattest` and nothing else, and both console scripts and the MCP handshake work from that install.
@@ -348,9 +366,15 @@ ledger — plus a web board, a read-only REST API and a desktop console.
 Having read its source, the two fit together rather than compete. That project decides with an exit
 code. This one *is* an exit code worth deciding with:
 
+```toml
+[[taskgroup]]
+id = "reports"
+project = "reports"
+verify = "taskattest --spec .taskattest/spec.json"
+verify_kind = "check"
 ```
-verify_cmd = "taskattest --spec spec.json"
-```
+
+See [examples/with_taskproof](examples/with_taskproof/README.md). This follows taskproof's documented configuration and has not yet been run inside taskproof itself.
 
 What this adds:
 
