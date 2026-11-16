@@ -147,7 +147,10 @@ CHECK_RESULT_SCHEMA = {
         "type": "object",
         "properties": {"name": {"type": "string"},
                        "status": {"type": "string", "enum": ["pass", "fail"]},
-                       "detail": {"type": "string"}},
+                       "detail": {"type": "string"},
+                       "fix": {"type": "object",
+                               "description": "on failure: an action and the facts needed to make "
+                                              "this check pass"}},
         "required": ["name", "status", "detail"],
     },
 }

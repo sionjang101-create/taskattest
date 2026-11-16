@@ -45,6 +45,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import fixes
 from . import trace as trace_mod
 from . import xlsx
 
@@ -387,6 +388,18 @@ def check_numeric_range(ctx, args) -> dict:
 
     out_of_range = [v for v in values
                     if (low is not None and v < low) or (high is not None and v > high)]
+    offending = []
+    if aggregate == "each":
+        column = args.get("column")
+        for index, row in enumerate(rows):
+            raw = row.get(column) if isinstance(row, dict) else None
+            if raw is None or str(raw).strip() == "":
+                continue
+            v = to_minor_units(raw)
+            if (low is not None and v < low) or (high is not None and v > high):
+                offending.append({"row": index, "value": str(raw)})
+                if len(offending) >= MAX_LISTED:
+                    break
     bounds = (f"[{format_amount(low) if low is not None else '-inf'}, "
               f"{format_amount(high) if high is not None else '+inf'}]")
     if not values:
@@ -394,7 +407,8 @@ def check_numeric_range(ctx, args) -> dict:
                 "out_of_range": 0, "values_checked": 0}
     return {"status": "pass" if not out_of_range else "fail",
             "detail": f"{label}, bounds {bounds}, {len(out_of_range)} out of range",
-            "out_of_range": len(out_of_range), "values_checked": len(values)}
+            "out_of_range": len(out_of_range), "values_checked": len(values),
+            "offending": offending}
 
 
 def recompute_unpaid(ctx, args):
@@ -439,7 +453,9 @@ def check_amount_sum(ctx, args) -> dict:
     actual_total = sum(to_minor_units(r.get(column, 0)) for r in out_rows)
     return {"status": "pass" if expected_total == actual_total else "fail",
             "detail": (f"expected total {format_amount(expected_total)} / "
-                       f"actual total {format_amount(actual_total)}")}
+                       f"actual total {format_amount(actual_total)}"),
+            "expected_total": format_amount(expected_total),
+            "actual_total": format_amount(actual_total)}
 
 
 # ---------- checks: JSON documents ----------
@@ -747,6 +763,7 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
     outputs = {name: file_record(f"outputs.{name}") for name in spec.get("outputs", {})}
 
     results = []
+    fix_list = []
     for item in spec.get("checks", []):
         kind = item.get("type")
         name = item.get("name", kind or "unnamed")
@@ -754,17 +771,25 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
         if fn is None:
             results.append({"name": name, "type": kind, "status": "fail",
                             "detail": f"unknown check type: {kind}"})
+            fix_list.append({"action": "fix_spec", "check": name,
+                             "detail": f"unknown check type: {kind}",
+                             "note": "the spec itself is wrong; this is not a fault in the outputs"})
             continue
         try:
             out = fn(ctx, item)
+            error = None
         except CheckFail as exc:
             out = {"status": "fail", "detail": str(exc)}
+            error = "missing" if "not found" in str(exc) else "spec"
         except KeyError as exc:
             out = {"status": "fail", "detail": f"spec is missing field {exc}"}
+            error = "spec"
         except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
             out = {"status": "fail", "detail": f"{type(exc).__name__}: {exc}"}
+            error = "spec"
         out.update({"name": name, "type": kind})
         results.append(out)
+        fix_list.append(fixes.fix_for(item, out, ctx, error, {"records": _records}))
 
     core = spec.get("core_output")
     core_ok = outputs.get(core, {}).get("exists", False) if core else True
@@ -789,8 +814,12 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
     digest = canonical_digest(stable)
 
     manifest = dict(stable)
-    manifest["check_details"] = [{"name": r["name"], "status": r["status"],
-                                  "detail": r.get("detail", "")} for r in results]
+    manifest["check_details"] = []
+    for r, fx in zip(results, fix_list):
+        entry = {"name": r["name"], "status": r["status"], "detail": r.get("detail", "")}
+        if fx:
+            entry["fix"] = fx
+        manifest["check_details"].append(entry)
     manifest["evidence_digest"] = digest
     manifest["finished_at_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     manifest["replay_command"] = f'python -m taskattest --spec "{spec_path}"'
@@ -829,6 +858,8 @@ def main(argv=None) -> int:
             print(f"  WARNING {w}")
         for r in m["check_details"]:
             print(f"  - {r['status']:7} {r['name']}: {r['detail']}")
+            if r.get("fix"):
+                print(f"            fix: {fixes.summary(r['fix'])}")
         print(f"  evidence: {m['evidence_dir']}")
         print(f"  replay:   {m['replay_command']}")
     return 0 if m["verdict"] == "pass" else 1
