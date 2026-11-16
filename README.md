@@ -2,7 +2,16 @@
 
 <!-- mcp-name: io.github.sionjang101-create/taskattest -->
 
-**Did the agent actually finish the job?** taskattest checks the files an AI agent left behind, using deterministic rules only — no model calls, no network, no dependencies. It answers `pass`, `partial`, or `fail`, and writes an evidence bundle you can replay.
+**Stop a coding agent from finishing with changes outside its task.** taskattest is a completion gate: when the agent tries to stop, it checks what the agent changed against the files it was allowed to touch, what it produced (invented records, wrong totals, CSV and Excel), and, only if you approved them, the commands you named. A failure blocks the stop with a structured fix; the same failure three times hands over to you. Deterministic rules only — no model calls, no network, no dependencies — and every run leaves an evidence bundle you can replay.
+
+In Claude Code:
+
+```text
+/plugin marketplace add sionjang101-create/taskattest
+/plugin install taskattest@taskattest
+```
+
+Your own uncommitted work is recorded when the session starts, so it is never blamed on the agent. Without a definition of done in `.taskattest/spec.json` the gate does nothing; the `define-done` skill writes one with you.
 
 한국어 설명은 [README.ko.md](README.ko.md)에 있습니다.
 

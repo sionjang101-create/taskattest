@@ -11,7 +11,7 @@
     {
       "name": "taskattest",
       "source": "./",
-      "description": "Check a coding agent's \"done\" before it stops, with structured fixes and an evidence bundle."
+      "description": "Stop a coding agent from finishing with changes outside its task: scope, output and approved-command checks at the Stop hook, with structured fixes and an evidence bundle."
     }
   ]
 }
