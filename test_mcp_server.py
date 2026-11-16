@@ -143,8 +143,8 @@ def test_legacy(specs: dict) -> None:
 
         res = result_of(s.request("tools/list"), "tools/list")
         names = [t["name"] for t in res["tools"]]
-        check(names == ["verify_task", "replay_evidence", "describe_checks"],
-              f"tools/list returns the three tools: {names}")
+        check(names == ["verify_task", "replay_evidence", "draft_spec", "describe_checks"],
+              f"tools/list returns the four tools: {names}")
         check(all(isinstance(t.get("inputSchema"), dict) for t in res["tools"]),
               "every tool declares an inputSchema object")
         check("resultType" not in res, "no resultType on a legacy tools/list")
@@ -282,6 +282,45 @@ def test_root_confinement(specs: dict) -> None:
         s.close()
 
 
+def test_draft_tool(specs: dict) -> None:
+    print("\n=== draft_spec over MCP ===")
+    confined = specs["case_ok"].parent
+    s = Server("--root", str(confined))
+    try:
+        s.request("initialize", {"protocolVersion": LEGACY, "capabilities": {},
+                                 "clientInfo": {"name": "t", "version": "1"}})
+        target = confined / "drafted_spec.json"
+        if target.exists():
+            target.unlink()
+        out = structured(s.request("tools/call", {"name": "draft_spec", "arguments": {
+            "spec_path": str(target),
+            "inputs": {"orders": str(confined / "in" / "orders.csv")},
+            "outputs": {"missing": str(confined / "out" / "missing_orders.csv")},
+            "write": True}}), "draft_spec")
+        check(out["spec"]["draft"] is True, "the drafted spec is marked draft")
+        check(out["written_to"] and Path(out["written_to"]).is_file(), "write=true writes the file")
+        kinds = {c["type"] for c in out["spec"]["checks"]}
+        check({"file_hash", "subset_of", "unique_key"} <= kinds,
+              f"seal, relation and uniqueness are proposed: {sorted(kinds)}")
+        check("inputs.orders" in out["profiles"], "a field profile comes back for the agent")
+        v = structured(s.request("tools/call", {"name": "verify_task",
+                                                "arguments": {"spec_path": str(target)}}), "verify")
+        check(v["warnings"] and "unreviewed draft" in v["warnings"][0],
+              "verifying against the draft returns the warning")
+        again = result_of(s.request("tools/call", {"name": "draft_spec", "arguments": {
+            "spec_path": str(target), "write": True}}), "draft again")
+        check(again.get("isError") is True and "refusing to overwrite" in again["content"][0]["text"],
+              "drafting over an existing spec is refused")
+        outside = result_of(s.request("tools/call", {"name": "draft_spec", "arguments": {
+            "spec_path": str(confined / "x.json"),
+            "inputs": {"o": str(specs["case_incomplete"].parent / "in" / "orders.csv")}}}),
+            "draft outside root")
+        check(outside.get("isError") is True and "outside the permitted root" in outside["content"][0]["text"],
+              "draft_spec cannot read outside --root")
+    finally:
+        s.close()
+
+
 def main() -> int:
     specs = build_fixtures()
     test_legacy(specs)
@@ -289,13 +328,14 @@ def main() -> int:
     test_errors(specs)
     test_replay(modern["evidence_dir"])
     test_root_confinement(specs)
+    test_draft_tool(specs)
 
     print("\n=== summary ===")
     if failures:
         for f in failures:
             print("FAILED:", f)
         return 1
-    print("mcp protocol: both eras, 3 tools, error contract, replay, root confinement - all pass")
+    print("mcp protocol: both eras, 4 tools, error contract, replay, root confinement, draft - all pass")
     return 0
 
 

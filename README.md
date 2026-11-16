@@ -63,6 +63,10 @@ python test_trace.py
 ```
 
 ```bash
+python test_draft.py
+```
+
+```bash
 python test_mcp_server.py
 ```
 
@@ -226,6 +230,7 @@ taskattest-mcp --root /abs/path/you/allow
 | --- | --- |
 | `verify_task` | Judge a task from its spec file. Returns the verdict, the evidence digest, and per-check detail |
 | `replay_evidence` | Re-run a recorded manifest and report whether the digest still matches — for testing a claimed verdict instead of trusting it |
+| `draft_spec` | Read the files and propose a spec, plus a profile of every field; the draft is marked and warns until reviewed |
 | `describe_checks` | Return the check types and a spec template, so an agent can write a spec before running one |
 
 Register it with any MCP client. For Claude Code or Claude Desktop:
@@ -253,6 +258,51 @@ One deliberate deviation from the modern spec: per-request `_meta` is required o
 has probed `server/discover`. A client arriving through `initialize` is not forced to send it,
 because that handshake does not establish the modern dialect.
 
+## Drafting a spec from the files
+
+Writing a spec by hand means opening the files first — and for a raw UTF-16 log, that is the
+slow part. `taskattest draft` reads them and proposes one:
+
+```bash
+taskattest draft --input orders=in/orders.csv --output picked=out/picked.csv --out spec.json
+```
+
+```bash
+taskattest draft --trace logs/session01.log --trace logs/session02.log --out spec.json
+```
+
+Over MCP, the `draft_spec` tool does the same and also returns a profile of every field — types,
+ranges, the values of low-cardinality fields — so an agent can write its own conditions without
+opening a file.
+
+What it proposes, and why each is safe to propose:
+
+| From | Proposed |
+| --- | --- |
+| Inputs | `file_hash` seals with the real digest |
+| Outputs that are records | required columns, not empty, uniqueness for instance ids (`id`, `*_id`, `uuid`, `*_no`), `subset_of` relating every id or code back to an input that has the same column, `min: 0` on amount-like columns |
+| JSON documents | parses as an object, required top-level keys, and the record checks for any array of objects inside |
+| Text | no placeholders, and the headings present as required sections |
+| Traces | the line prefix, the grouping field and the state field, then `trace_order` over the milestones common to 80% of groups, and a count of groups reaching the last one |
+
+**The danger it is built around.** An agent that drafts a spec from its own wrong output would
+pass. So a draft never lets an output decide a threshold:
+
+- Uniqueness is proposed for an instance id whether or not the output is unique today, so a
+  duplicate fails. Codes such as `sku` or `barcode` name a kind of thing and repeat by design;
+  they are only related back to the input, never required to be unique.
+- `min: 0` is decided from the column name and the inputs. A negative value in the output cannot
+  switch off the check that would catch it. If an input already has negative amounts — refunds,
+  say — no bound is proposed and the notes say why.
+- No upper bound and no trace invariant is ever fitted. Group counts are set to every group
+  observed, the strictest value, with a note to lower them to your threshold.
+- Column and key checks mirror the file as it is, and the notes say so: they cannot catch a column
+  the agent left out. Draft before the run or from a known-good example; the seals and the checks
+  against the inputs are what carry correctness.
+
+A drafted spec carries `"draft": true`. Every verdict made with it includes a warning that it is an
+unreviewed draft, until a person removes the flag. Drafting over an existing spec is refused.
+
 ## Evidence bundle
 
 Each run writes `evidence/<task_id>/<digest>/manifest.json`:
@@ -267,12 +317,13 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 105 assertions across four suites, all passing on both. CI runs the same four suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 145 assertions across five suites, all passing on both. CI runs the same five suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_trace.py` (29): the condition language, a robot delivery judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
-- `test_mcp_server.py` (32): the server driven as a real subprocess — both handshakes, all three tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, and `--root` refusal.
+- `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
+- `test_mcp_server.py` (39): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.
 
 The package itself was verified by installing it, not by claiming it: the wheel was built, installed into a clean virtual environment, and run from outside the repository — `pip list` there shows `pip` and `taskattest` and nothing else, and both console scripts and the MCP handshake work from that install.
 

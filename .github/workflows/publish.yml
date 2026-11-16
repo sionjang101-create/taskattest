@@ -24,6 +24,7 @@ jobs:
           python selftest.py
           python test_xlsx.py
           python test_trace.py
+          python test_draft.py
           python test_mcp_server.py
       - name: Build
         run: |

@@ -796,6 +796,7 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
     manifest["replay_command"] = f'python -m taskattest --spec "{spec_path}"'
     manifest["spec_path"] = str(spec_path.resolve())
     manifest["judged_by"] = "deterministic_rules_only"
+    manifest["warnings"] = (["unreviewed draft: this spec was generated from the files and still carries \"draft\": true. A verdict against it says the files match what was there, not that the task is done. Review the checks and remove the flag."] if spec.get("draft") else [])
     manifest["model_calls"] = 0
 
     out_dir = evidence_root / str(spec.get("task_id", "task")) / digest[:12]
@@ -807,6 +808,10 @@ def run(spec_path: Path, evidence_root: Path) -> dict:
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "draft":
+        from . import draft
+        return draft.main(argv[1:])
     ap = argparse.ArgumentParser(
         description="taskattest - verify agent task completion from the files it produced")
     ap.add_argument("--spec", required=True, help="path to the task definition JSON")
@@ -820,6 +825,8 @@ def main(argv=None) -> int:
 
     if not a.quiet:
         print(f"[{m['verdict'].upper()}] {m['task_id']}  (model calls: {m['model_calls']})")
+        for w in m.get("warnings", []):
+            print(f"  WARNING {w}")
         for r in m["check_details"]:
             print(f"  - {r['status']:7} {r['name']}: {r['detail']}")
         print(f"  evidence: {m['evidence_dir']}")

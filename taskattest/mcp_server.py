@@ -41,6 +41,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import draft as drafting
 from . import runner
 
 SERVER_NAME = "taskattest"
@@ -63,7 +64,8 @@ UNSUPPORTED_PROTOCOL_VERSION = -32022
 
 INSTRUCTIONS = (
     "Verify that a task is actually finished by checking the files that were produced. "
-    "Write the definition of done into a spec file first, then call verify_task. "
+    "Write the definition of done into a spec file first, or call draft_spec to have one "
+    "proposed from the files and then review it, then call verify_task. "
     "Judging is deterministic: no model is consulted, so the same inputs always give "
     "the same verdict and the same evidence digest. Call describe_checks to learn the "
     "spec format before writing one."
@@ -181,6 +183,7 @@ TOOLS = [
                 "replay_command": {"type": "string"},
                 "judged_by": {"type": "string"},
                 "model_calls": {"type": "integer"},
+                "warnings": {"type": "array", "items": {"type": "string"}},
                 "checks": CHECK_RESULT_SCHEMA,
             },
             "required": ["verdict", "evidence_digest", "evidence_dir",
@@ -222,6 +225,53 @@ TOOLS = [
                          "recomputed_digest", "recorded_verdict", "recomputed_verdict"],
         },
         "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True, "openWorldHint": False},
+    },
+    {
+        "name": "draft_spec",
+        "title": "Draft a spec from the files",
+        "description": (
+            "Read the input, output and trace files and propose a spec: structure checks for "
+            "outputs, seals on the inputs, checks relating output ids to input ids, and for traces "
+            "the ordering and counts it can infer. Also returns a profile of every field so you "
+            "can write your own conditions without opening the files. Deterministic, no model "
+            "calls. It never fits a threshold to an output; the spec is marked draft and every "
+            "verdict against it carries a warning until a person removes the flag."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "spec_path": {"type": "string",
+                              "description": "Where the spec will live; paths are made relative "
+                                             "to it. Written only if write is true."},
+                "inputs": {"type": "object", "additionalProperties": {"type": "string"},
+                           "description": "name -> path of files given to the agent"},
+                "outputs": {"type": "object", "additionalProperties": {"type": "string"},
+                            "description": "name -> path of files the agent must produce"},
+                "traces": {"type": "array", "items": {"type": "string"},
+                           "description": "state logs, read in order"},
+                "line_prefix": {"type": "string",
+                                "description": "only lines starting with this are records; "
+                                               "detected if omitted"},
+                "task_id": {"type": "string"},
+                "description": {"type": "string"},
+                "write": {"type": "boolean",
+                          "description": "write the draft to spec_path; refuses to overwrite"},
+            },
+            "required": ["spec_path"],
+            "additionalProperties": False,
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "object"},
+                "notes": {"type": "array", "items": {"type": "string"}},
+                "profiles": {"type": "object"},
+                "written_to": {"type": ["string", "null"]},
+            },
+            "required": ["spec", "notes", "profiles", "written_to"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": False,
                         "idempotentHint": True, "openWorldHint": False},
     },
     {
@@ -312,6 +362,7 @@ def tool_verify_task(args: dict, root: Path | None) -> dict:
         "replay_command": m["replay_command"],
         "judged_by": m["judged_by"],
         "model_calls": m["model_calls"],
+        "warnings": m.get("warnings", []),
         "checks": m["check_details"],
     }
 
@@ -368,7 +419,39 @@ def tool_describe_checks(args: dict, root: Path | None) -> dict:
     }
 
 
+def tool_draft_spec(args: dict, root) -> dict:
+    raw = args.get("spec_path")
+    if not isinstance(raw, str) or not raw.strip():
+        raise ToolError("spec_path is required")
+    spec_path = confine(Path(raw), root, "spec_path")
+
+    def paths(value, label):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ToolError(f"{label} must be an object of name -> path")
+        return {str(k): confine(Path(str(v)), root, f"{label}.{k}") for k, v in value.items()}
+
+    traces = args.get("traces") or []
+    if not isinstance(traces, list):
+        raise ToolError("traces must be a list of paths")
+    trace_paths = [confine(Path(str(t)), root, f"traces[{i}]") for i, t in enumerate(traces)]
+    result = drafting.draft_spec(spec_path.parent, paths(args.get("inputs"), "inputs"),
+                                 paths(args.get("outputs"), "outputs"), trace_paths,
+                                 args.get("line_prefix"), args.get("task_id") or "draft_task",
+                                 args.get("description") or "")
+    written = None
+    if args.get("write"):
+        try:
+            written = str(drafting.write_spec(result["spec"], spec_path))
+        except FileExistsError as exc:
+            raise ToolError(str(exc))
+    return {"spec": result["spec"], "notes": result["notes"], "profiles": result["profiles"],
+            "written_to": written}
+
+
 TOOL_IMPLS = {
+    "draft_spec": tool_draft_spec,
     "verify_task": tool_verify_task,
     "replay_evidence": tool_replay_evidence,
     "describe_checks": tool_describe_checks,

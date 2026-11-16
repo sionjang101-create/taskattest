@@ -23,6 +23,8 @@ jobs:
         run: python test_xlsx.py
       - name: Traces
         run: python test_trace.py
+      - name: Drafting
+        run: python test_draft.py
       - name: MCP protocol
         run: python test_mcp_server.py
 
