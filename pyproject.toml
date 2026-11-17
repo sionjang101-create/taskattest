@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "taskattest"
 dynamic = ["version"]
-description = "Did the agent actually finish the job? Deterministic, local-only verification of agent task results from the files they produced."
+description = "Stop a coding agent from finishing with changes outside its task: deterministic, local-only checks of what it changed, produced and recorded, with replayable evidence."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
