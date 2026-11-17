@@ -151,6 +151,21 @@ def evaluate(cwd: Path, max_repeats: int = DEFAULT_REPEATS, session_id=None, sub
             return {}  # nothing to say when a subagent stayed in scope
         return {"systemMessage": f"taskattest gate: pass ({manifest['evidence_digest'][:12]})"}
 
+    failing = [d for d in manifest["check_details"] if d["status"] == "fail"]
+    if failing and all((d.get("fix") or {}).get("action") == "approve_command" for d in failing):
+        # Blocking again cannot help: the agent must not approve its own commands.
+        state_path.write_text(json.dumps({"last": manifest["verdict"], "signature": _signature(manifest),
+                                          "repeats": 0, "digest": manifest["evidence_digest"],
+                                          "handed_over": "approval"}), encoding="utf-8")
+        lines = ["taskattest gate: a command in the definition of done needs a person's approval, "
+                 "so the agent is allowed to stop. Run this to approve it:"]
+        for d in failing:
+            fx = d["fix"]
+            lines.append(f"  {fx.get('approve_with', '')}")
+            if fx.get("approve_with_powershell"):
+                lines.append(f"  in PowerShell: {fx['approve_with_powershell']}")
+        return {"systemMessage": "\n".join(lines)}
+
     sig = _signature(manifest)
     repeats = state.get("repeats", 0) + 1 if state.get("signature") == sig else 1
     state_path.write_text(json.dumps({"last": manifest["verdict"], "signature": sig, "repeats": repeats,

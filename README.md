@@ -221,7 +221,7 @@ command into the spec and have the gate run it. So:
   `taskattest approve --spec .taskattest/spec.json`. Approvals live outside the project, in
   `~/.taskattest/approved_commands.json` (or `$TASKATTEST_HOME`), so editing a file in the project
   cannot grant one. Changing the command or its directory needs a new approval;
-- an unapproved command is not run; the check fails and the fix asks for a person's approval, with the exact `approve` command for this install in `approve_with`;
+- an unapproved command is not run; the check fails and the fix asks for a person's approval, with the exact `approve` command for this install in `approve_with`. When approval is all that is missing, the gate hands over at once instead of blocking three times, because the agent cannot fix it;
 - the command is an argument list run without a shell, with a time limit (default 300 s, at most
   3600). `{python}` is replaced by the interpreter running taskattest. A single string is refused.
 
@@ -429,6 +429,8 @@ agent can check its own completion claim instead of waiting for a human to run t
 taskattest-mcp --root /abs/path/you/allow
 ```
 
+The server can also be started with `taskattest mcp`, which takes the same `--root` option.
+
 | Tool | Purpose |
 | --- | --- |
 | `verify_task` | Judge a task from its spec file. Returns the verdict, the evidence digest, and per-check detail |
@@ -520,14 +522,14 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 245 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 250 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
 - `test_trace.py` (29): the condition language, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
-- `test_commands.py` (22): an unapproved command never runs and an approvals file inside the project grants nothing; approval covers the exact command and directory; exit codes decide, with `expect_exit`; varying output leaves the digest unchanged; time limits, string commands and missing programs; approve refuses without a terminal unless `--yes`; the `--root` guard; the gate blocking until an approved command passes.
-- `test_plugin.py` (13): the plugin manifests agree with the package version; both hooks and the MCP entry call the launcher with the configured Python; the launcher allows with no spec, blocks a failing spec, passes a fixed one, starts the MCP server and reaches the CLI.
+- `test_commands.py` (25): an unapproved command never runs and an approvals file inside the project grants nothing; approval covers the exact command and directory; exit codes decide, with `expect_exit`; varying output leaves the digest unchanged; time limits, string commands and missing programs; approve refuses without a terminal unless `--yes`; the `--root` guard; the gate blocking until an approved command passes.
+- `test_plugin.py` (15): the plugin manifests agree with the package version; both hooks and the MCP entry call the launcher with the configured Python; the launcher allows with no spec, blocks a failing spec, passes a fixed one, starts the MCP server and reaches the CLI.
 - `test_scope.py` (37): glob semantics; modified, new and deleted files outside the scope each reported with how to undo them; deny over allow; ignored and git-ignored paths; a subdirectory root; non-ASCII names; spec errors; the `--root` guard; the session baseline (pre-existing work left out, further changes and discarded work caught, resume keeps the baseline); the gate blocking and then passing; the subagent gate holding a subagent to scope only.
 - `test_gate.py` (10): the Stop-hook protocol — no spec allows, failure blocks with fixes, the same failure hands over on the third try, a fixed task passes, every run leaves evidence.
 - `test_fixes.py` (9): an agent that follows only the fixes turns both seeded failure cases into a pass, and fixes never tell it to edit inputs or to patch over a process failure.

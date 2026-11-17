@@ -1,6 +1,6 @@
 {
   "name": "taskattest",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Stop a coding agent from finishing with changes outside its task. A Stop hook checks what it changed against the files it may touch (your own uncommitted work is never blamed on it), what it produced (invented records, wrong totals, CSV/Excel), and, only if you approved them, the commands you name. Blocks with a structured fix, hands over to you after repeated failures, leaves an evidence bundle. No model calls, no dependencies.",
   "author": {
     "name": "Sion Jang",

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sionjang101-create/taskattest",
+  "title": "taskattest",
+  "description": "Stop a coding agent from finishing with changes outside its task: deterministic scope, output and approved-command checks with replayable evidence. No model calls, no network.",
+  "version": "0.14.0",
+  "repository": {
+    "url": "https://github.com/sionjang101-create/taskattest",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "taskattest",
+      "version": "0.14.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}

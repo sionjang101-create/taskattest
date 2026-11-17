@@ -91,6 +91,10 @@ def main() -> int:
         (tmp / "report.txt").write_text("done\n", encoding="utf-8")
         reply = json.loads(launch(["gate"], tmp, event).stdout)
         check("decision" not in reply and "pass" in reply.get("systemMessage", ""), "a passing spec lets it stop")
+        bundle = sorted((tmp / ".taskattest" / "evidence").glob("*/*/manifest.json"))[-1]
+        replay = json.loads(bundle.read_text(encoding="utf-8"))["replay_command"]
+        check("plugin" in replay and "run.py" in replay,
+              f"the replay command works for a plugin install, where `python -m taskattest` does not: {replay[:80]}")
 
         init = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -99,6 +103,11 @@ def main() -> int:
         first = json.loads(out.stdout.splitlines()[0]) if out.stdout.strip() else {}
         check(first.get("result", {}).get("serverInfo", {}).get("version") == __version__,
               "the launcher starts the MCP server, confined to the project")
+        out = subprocess.run([sys.executable, "-m", "taskattest", "mcp", "--root", str(tmp)], cwd=str(ROOT),
+                             input=init + "\n", capture_output=True, text=True, encoding="utf-8", timeout=60)
+        first = json.loads(out.stdout.splitlines()[0]) if out.stdout.strip() else {}
+        check(first.get("result", {}).get("serverInfo", {}).get("name") == "taskattest",
+              "`taskattest mcp` starts the MCP server, as a registry entry runs it")
         out = launch(["--help"], tmp)
         check(out.returncode == 0 and "--spec" in out.stdout, "other arguments reach the taskattest CLI")
 

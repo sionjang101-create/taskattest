@@ -70,6 +70,17 @@ def main() -> int:
         check(m["verdict"] == "fail" and not marker.exists(), "an unapproved command is not run and the check fails")
         check(d["fix"]["action"] == "approve_command" and "must not approve" in d["fix"]["note"],
               "the fix asks for a person's approval and forbids self-approval")
+        if os.name == "nt":
+            check(d["fix"]["approve_with_powershell"].startswith("& \"") and
+                  d["fix"]["approve_with_powershell"].endswith(d["fix"]["approve_with"]),
+                  "on Windows the fix also gives the PowerShell form, with the call operator")
+        eof = subprocess.run([sys.executable, "-m", "taskattest", "approve", "--spec",
+                              str(project / ".taskattest" / "spec.json")], cwd=str(ROOT), input="",
+                             capture_output=True, text=True, env=dict(os.environ))
+        check("Traceback" not in eof.stderr and eof.returncode != 0,
+              "approve with no terminal and no --yes approves nothing and does not crash")
+        check("taskattest approve --spec <spec>" not in d["detail"],
+              "the detail does not name a command that may not be on this machine's PATH")
         line = d["fix"]["approve_with"]
         check("approve --spec" in line and str((project / ".taskattest" / "spec.json").resolve()) in line,
               f"the fix carries the exact approve command for this install: {line[:90]}")
@@ -140,9 +151,9 @@ def main() -> int:
         check(refused, "a command directory outside the permitted --root is refused")
         gate_cmd = ["{python}", "-c", "import pathlib, sys; sys.exit(0 if pathlib.Path('ok.txt').exists() else 1)"]
         spec([{"command": gate_cmd}])
-        blocked = gate.evaluate(project)
-        check(blocked.get("decision") == "block" and "approve" in blocked.get("reason", ""),
-              "the gate blocks an unapproved command and says a person must approve it")
+        handed = gate.evaluate(project)
+        check("decision" not in handed and "approve --spec" in handed.get("systemMessage", ""),
+              "an unapproved command is handed to the person at once, with the approve command, not blocked")
         approve([{"command": gate_cmd}])
         (project / ".taskattest" / "gate_state.json").unlink()
         check(gate.evaluate(project).get("decision") == "block", "approved but failing: the gate still blocks")

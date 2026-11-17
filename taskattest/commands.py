@@ -115,8 +115,8 @@ def check_command(cwd: Path, args: dict) -> dict:
     result = {"command": argv, "expect_exit": expect, "fingerprint": fp}
     if fp not in load_approvals():
         result.update({"status": "fail", "approved": False, "exit_code": None,
-                       "detail": (f"not run: {argv} in {cwd} has not been approved by a person "
-                                  f"(taskattest approve --spec <spec>)")})
+                       "detail": (f"not run: {argv} in {cwd} has not been approved by a person; "
+                                  f"the fix carries the exact approve command")})
         return result
     result["approved"] = True
     try:
@@ -186,8 +186,12 @@ def approve_main(argv) -> int:
         if not sys.stdin.isatty():
             print("not a terminal: rerun with --yes after reading the commands above", file=sys.stderr)
             return 1
-        if input(f"Run these {len(pending)} command(s) whenever this spec is checked? [y/N] ").strip().lower() != "y":
-            print("nothing approved")
+        try:
+            answer = input(f"Run these {len(pending)} command(s) whenever this spec is checked? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer.strip().lower() != "y":
+            print("\nnothing approved")
             return 1
     for cmd, cwd in pending:
         approve(cmd, cwd)

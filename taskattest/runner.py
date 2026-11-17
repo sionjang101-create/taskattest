@@ -865,7 +865,7 @@ def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None, only
         manifest["check_details"].append(entry)
     manifest["evidence_digest"] = digest
     manifest["finished_at_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    manifest["replay_command"] = f'python -m taskattest --spec "{spec_path}"'
+    manifest["replay_command"] = f'{fixes.invocation()} --spec "{spec_path}"'
     manifest["spec_path"] = str(spec_path.resolve())
     manifest["judged_by"] = "deterministic_rules_only"
     manifest["warnings"] = (["unreviewed draft: this spec was generated from the files and still carries \"draft\": true. A verdict against it says the files match what was there, not that the task is done. Review the checks and remove the flag."] if spec.get("draft") else [])
@@ -899,6 +899,9 @@ def main(argv=None) -> int:
     if argv and argv[0] == "draft":
         from . import draft
         return draft.main(argv[1:])
+    if argv and argv[0] == "mcp":  # `taskattest mcp`, so a registry entry can run the server from the package
+        from . import mcp_server
+        return mcp_server.main(argv[1:])
     if argv and argv[0] == "approve":
         return commands_mod.approve_main(argv[1:])
     if argv and argv[0] == "gate":

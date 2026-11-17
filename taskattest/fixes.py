@@ -31,6 +31,8 @@ their wording can improve without changing what a verdict is evidence of.
 
 from __future__ import annotations
 
+import os
+
 PROCESS_NOTE = ("this checks what happened during the run, not the files left behind; editing "
                 "outputs cannot fix it, so run the step again")
 SEAL_NOTE = ("an input changed after it was sealed; restore the original input, and do not edit "
@@ -42,15 +44,20 @@ SCOPE_NOTE = ("these changes are outside what the task was allowed to touch; und
               "really needed, stop and ask the person to widen the scope; do not edit the spec")
 
 
-def approve_line(ctx) -> str:
-    """The exact command a person can paste, however taskattest was installed."""
+def invocation() -> str:
+    """How to run taskattest from a shell for this install: the plugin launcher, or the module."""
     import sys
     from pathlib import Path
-    spec = ctx.get("spec_path", ".taskattest/spec.json")
     launcher = Path(__file__).resolve().parent.parent / "plugin" / "run.py"
     if launcher.is_file():
-        return f'"{sys.executable}" "{launcher}" approve --spec "{spec}"'
-    return f'"{sys.executable}" -m taskattest approve --spec "{spec}"'
+        return f'"{sys.executable}" "{launcher}"'
+    return f'"{sys.executable}" -m taskattest'
+
+
+def approve_line(ctx) -> str:
+    """The exact command a person can paste, however taskattest was installed."""
+    spec = ctx.get("spec_path", ".taskattest/spec.json")
+    return f'{invocation()} approve --spec "{spec}"'
 
 
 def _file(ctx, args, field="target"):
@@ -165,8 +172,11 @@ def _fix_for(item: dict, result: dict, ctx: dict, error: str | None, helpers: di
                 "lines": result.get("placeholders_found", [])}
     if kind == "command_succeeds":
         if result.get("approved") is False:
-            return {"action": "approve_command", "command": result.get("command"), "cwd": result.get("cwd"),
-                    "approve_with": approve_line(ctx), "note": APPROVAL_NOTE}
+            fix = {"action": "approve_command", "command": result.get("command"), "cwd": result.get("cwd"),
+                   "approve_with": approve_line(ctx), "note": APPROVAL_NOTE}
+            if os.name == "nt":  # PowerShell runs a quoted path only behind the call operator
+                fix["approve_with_powershell"] = "& " + fix["approve_with"]
+            return fix
         fix = {"action": "make_command_pass", "command": result.get("command"), "cwd": result.get("cwd"),
                "exit_code": result.get("exit_code"), "expect_exit": result.get("expect_exit", 0),
                "output_tail": result.get("output_tail", ""),
