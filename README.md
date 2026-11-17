@@ -266,6 +266,8 @@ Output checks ask whether the files are right. Many agent and robot failures hap
 a forbidden step taken and undone, steps done out of order, a collision recovered by luck. A
 trace check reads a time-ordered state log and judges the process.
 
+The same checks judge recordings before they are trusted: sessions that were never written, dropped frames, a clock that skips, a sensor or controller that freezes. See [examples/recording_quality](examples/recording_quality/README.md), where five synthetic robot-arm sessions hide four problems and each is found and placed in its session.
+
 | Type | What it verifies |
 | --- | --- |
 | `trace_always` | An invariant holds at every step, or at every step where `when` holds. With `when`, nothing to check is a failure unless `allow_empty` is set |
@@ -525,7 +527,7 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 279 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 287 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
@@ -536,7 +538,7 @@ This is an early release, kept deliberately small.
 - `test_scope.py` (37): glob semantics; modified, new and deleted files outside the scope each reported with how to undo them; deny over allow; ignored and git-ignored paths; a subdirectory root; non-ASCII names; spec errors; the `--root` guard; the session baseline (pre-existing work left out, further changes and discarded work caught, resume keeps the baseline); the gate blocking and then passing; the subagent gate holding a subagent to scope only.
 - `test_gate.py` (10): the Stop-hook protocol — no spec allows, failure blocks with fixes, the same failure hands over on the third try, a fixed task passes, every run leaves evidence.
 - `test_fixes.py` (9): an agent that follows only the fixes turns both seeded failure cases into a pass, and fixes never tell it to edit inputs or to patch over a process failure.
-- `test_examples.py` (8): the 60-second example produces exactly the output its README shows, and its input seal survives checkout on every platform.
+- `test_examples.py` (16): both examples produce exactly the output their READMEs show; the 60-second example's input seal survives checkout on every platform, and in the recording example each hidden problem fails its own check.
 - `test_mcp_server.py` (40): the server driven as a real subprocess — both handshakes, all four tools, the error contract (protocol faults as JSON-RPC errors, tool failures as `isError` results), evidence replay, `--root` refusal, and `draft_spec` including its draft warning.
 
 The package itself was verified by installing it, not by claiming it: the wheel was built, installed into a clean virtual environment, and run from outside the repository — `pip list` there shows `pip` and `taskattest` and nothing else, and both console scripts and the MCP handshake work from that install.

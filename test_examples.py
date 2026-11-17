@@ -47,6 +47,21 @@ def main() -> int:
     for d in m["check_details"]:
         check(f"{d['status']:7} {d['name']}: {d['detail']}" in readme,
               f"README shows the real output for '{d['name']}'")
+    print("\n=== examples/recording_quality ===")
+    base = ROOT / "examples" / "recording_quality"
+    with tempfile.TemporaryDirectory() as tmp:
+        m = runner.run(base / "spec.json", Path(tmp))
+    status = {d["name"]: d["status"] for d in m["check_details"]}
+    check({n for n, s in status.items() if s == "fail"} ==
+          {"every session recorded", "no dropped frames", "clock steady at 20 Hz",
+           "arm never frozen for more than 2 s", "every session ends done"} and
+          status.get("joints finite and in range") == "pass",
+          f"each hidden problem fails its check and the range check passes: {sorted(status.items())}")
+    check((base / "recordings" / "session5.jsonl").stat().st_size == 0, "session 5 is the empty recording")
+    readme = (base / "README.md").read_text(encoding="utf-8")
+    for d in m["check_details"]:
+        check(f"{d['status']:7} {d['name']}: {d['detail']}" in readme,
+              f"README shows the real output for '{d['name']}'")
     if failures:
         for f in failures:
             print("FAILED:", f)
