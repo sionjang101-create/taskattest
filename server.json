@@ -3,7 +3,7 @@
   "name": "io.github.sionjang101-create/taskattest",
   "title": "taskattest",
   "description": "Stop a coding agent from finishing with changes outside its task: deterministic scope, output and approved-command checks with replayable evidence. No model calls, no network.",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "repository": {
     "url": "https://github.com/sionjang101-create/taskattest",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "pypi",
       "identifier": "taskattest",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

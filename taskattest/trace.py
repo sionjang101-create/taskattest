@@ -110,9 +110,12 @@ def _number(value):
     if isinstance(value, bool) or value is None or value is _MISSING:
         return None
     try:
-        return Decimal(str(value).strip())
+        number = Decimal(str(value).strip())
     except (InvalidOperation, ValueError):
         return None
+    # NaN and infinity are not numbers a bound can hold for: they fail every comparison
+    # instead of raising, so a corrupted record fails the check rather than crashing it.
+    return number if number.is_finite() else None
 
 
 def _equal(a, b) -> bool:
@@ -220,6 +223,25 @@ def _bounds(count: int, args: dict) -> list:
     return problems
 
 
+def _group(records: list, group_by) -> dict:
+    """{group key: (group value, [(index, record), ...])}, in first-seen order. No group_by: one group."""
+    groups: dict = {}
+    for index, record in enumerate(records):
+        if group_by:
+            value = lookup(record, group_by)
+            if value is _MISSING:
+                continue
+            key = json.dumps(value, sort_keys=True)
+        else:
+            value, key = None, "all"
+        groups.setdefault(key, (value, []))[1].append((index, record))
+    return groups
+
+
+def _shown(values: list, limit: int = 8) -> str:
+    return ", ".join(str(v) for v in values[:limit]) + (" ..." if len(values) > limit else "")
+
+
 def check_trace_always(records: list, args: dict) -> dict:
     cond = args.get("condition")
     validate(cond)
@@ -235,6 +257,9 @@ def check_trace_always(records: list, args: dict) -> dict:
         if not holds(cond, record):
             violations.append(index)
     if checked == 0:
+        if when is not None and args.get("allow_empty") is True:
+            return {"status": "pass", "detail": "no step matched `when`; allowed by allow_empty",
+                    "steps_checked": 0, "violations": 0}
         return {"status": "fail", "detail": "no step was checked, so nothing was proven",
                 "steps_checked": 0, "violations": 0}
     ok = not violations
@@ -249,6 +274,15 @@ def check_trace_always(records: list, args: dict) -> dict:
 def check_trace_eventually(records: list, args: dict) -> dict:
     cond = args.get("condition")
     validate(cond)
+    if args.get("group_by"):
+        groups = _group(records, args["group_by"])
+        missing = [v for v, rows in groups.values() if not any(holds(cond, r) for _, r in rows)]
+        ok = bool(groups) and not missing
+        detail = f"{len(groups) - len(missing)} of {len(groups)} {args['group_by']} group(s) reached the condition"
+        if missing:
+            detail += f"; never: {_shown(missing)}"
+        return {"status": "pass" if ok else "fail", "detail": detail, "groups": len(groups),
+                "incomplete_groups": missing[:50]}
     first = next((i for i, r in enumerate(records) if holds(cond, r)), None)
     if first is None:
         return {"status": "fail", "detail": f"never held across {len(records)} step(s)",
@@ -263,6 +297,24 @@ def check_trace_final(records: list, args: dict) -> dict:
     when = args.get("when")
     if when is not None:
         validate(when, "when")
+    if args.get("group_by"):
+        groups = _group(records, args["group_by"])
+        bad, empty = [], []
+        for value, rows in groups.values():
+            cand = [r for _, r in rows if when is None or holds(when, r)]
+            if not cand:
+                empty.append(value)
+            elif not holds(cond, cand[-1]):
+                bad.append(value)
+        failing = bad + empty
+        ok = bool(groups) and not failing
+        detail = f"{len(groups) - len(failing)} of {len(groups)} {args['group_by']} group(s) end in the condition"
+        if bad:
+            detail += f"; wrong end: {_shown(bad)}"
+        if empty:
+            detail += f"; no step to take as final: {_shown(empty)}"
+        return {"status": "pass" if ok else "fail", "detail": detail, "groups": len(groups),
+                "incomplete_groups": failing[:50]}
     candidates = [i for i, r in enumerate(records) if when is None or holds(when, r)]
     if not candidates:
         return {"status": "fail", "detail": "no step to take as final", "final_step": None}
@@ -349,12 +401,83 @@ def check_trace_order(records: list, args: dict) -> dict:
             "repeats": repeats}
 
 
+def check_trace_delta(records: list, args: dict) -> dict:
+    """Consecutive steps: the change in a field stays within bounds (inside each group)."""
+    field = args.get("field")
+    if not isinstance(field, str) or not field:
+        raise TraceError("trace_delta needs a field")
+    equals, low, high = (_number(args.get(k)) if args.get(k) is not None else None for k in ("equals", "min", "max"))
+    if equals is None and low is None and high is None:
+        raise TraceError("trace_delta needs equals, min or max")
+    tol = _number(args.get("tolerance", 0)) or Decimal(0)
+    pairs, violations = 0, []
+    for value, rows in _group(records, args.get("group_by")).values():
+        for (_, prev), (index, cur) in zip(rows, rows[1:]):
+            a, b = _number(lookup(prev, field)), _number(lookup(cur, field))
+            pairs += 1
+            if a is None or b is None:
+                violations.append((index, value, "missing or not a finite number"))
+                continue
+            d = b - a
+            if equals is not None and abs(d - equals) > tol:
+                violations.append((index, value, f"changed by {d}, expected {equals}"))
+            elif low is not None and d < low - tol:
+                violations.append((index, value, f"changed by {d}, below {low}"))
+            elif high is not None and d > high + tol:
+                violations.append((index, value, f"changed by {d}, above {high}"))
+    if pairs == 0:
+        return {"status": "fail", "detail": "no consecutive pair of steps, so nothing was proven", "violations": 0}
+    detail = f"{pairs} consecutive pair(s) checked, {len(violations)} violation(s)"
+    if violations:
+        index, value, why = violations[0]
+        detail += f", first at step {index}" + (f" ({args['group_by']} {value})" if args.get("group_by") else "") + f": {why}"
+    return {"status": "pass" if not violations else "fail", "detail": detail, "violations": len(violations),
+            "first_violation": violations[0][0] if violations else None}
+
+
+def check_trace_stall(records: list, args: dict) -> dict:
+    """No run of identical values longer than max_run consecutive steps (inside each group)."""
+    fields = args.get("fields")
+    if isinstance(fields, str):
+        fields = [fields]
+    if not fields or not all(isinstance(f, str) and f for f in fields):
+        raise TraceError("trace_stall needs fields: one field or a list of them")
+    max_run = args.get("max_run")
+    if not isinstance(max_run, int) or isinstance(max_run, bool) or max_run < 1:
+        raise TraceError("trace_stall needs max_run, a whole number of steps of at least 1")
+    longest, longest_at, stalls, steps = 0, None, [], 0
+    for value, rows in _group(records, args.get("group_by")).values():
+        run, start, last = 0, None, object()
+        for index, record in rows:
+            steps += 1
+            key = json.dumps([lookup(record, f) if lookup(record, f) is not _MISSING else None for f in fields],
+                             sort_keys=True, default=str)
+            if key == last:
+                run += 1
+            else:
+                run, start, last = 1, index, key
+            if run > longest:
+                longest, longest_at = run, (start, value)
+            if run == max_run + 1:
+                stalls.append((start, value))
+    if steps == 0:
+        return {"status": "fail", "detail": "no step was checked, so nothing was proven", "violations": 0}
+    detail = f"longest run of unchanged {', '.join(fields)}: {longest} step(s), allowed {max_run}"
+    if stalls:
+        start, value = stalls[0]
+        detail += f"; {len(stalls)} stall(s), first from step {start}" + (f" ({args['group_by']} {value})" if args.get("group_by") else "")
+    return {"status": "pass" if not stalls else "fail", "detail": detail, "violations": len(stalls),
+            "first_violation": stalls[0][0] if stalls else None, "longest_run": longest}
+
+
 TRACE_CHECKS = {
     "trace_always": check_trace_always,
     "trace_eventually": check_trace_eventually,
     "trace_final": check_trace_final,
     "trace_count": check_trace_count,
     "trace_order": check_trace_order,
+    "trace_delta": check_trace_delta,
+    "trace_stall": check_trace_stall,
 }
 
 CONDITION_HELP = (
@@ -374,12 +497,14 @@ TRACE_DOCS = {
                      "`when` holds. Fails if no step was checked. " + CONDITION_HELP),
         "fields": {"target": TRACE_SOURCE, "condition": "the invariant",
                    "when": "optional: only check steps where this holds",
+                   "allow_empty": "optional, with when: pass when no step matches when (default: fail)",
                    "line_prefix": "optional: treat the file as a log"},
     },
     "trace_eventually": {
         "family": "trace",
-        "verifies": "the condition holds at some step. " + CONDITION_HELP,
+        "verifies": ("the condition holds at some step; with group_by, in every group. " + CONDITION_HELP),
         "fields": {"target": TRACE_SOURCE, "condition": "what must happen at least once",
+                   "group_by": "optional field: every group must reach the condition",
                    "line_prefix": "optional"},
     },
     "trace_final": {
@@ -387,7 +512,8 @@ TRACE_DOCS = {
         "verifies": ("the last step, or the last step where `when` holds, satisfies the "
                      "condition. " + CONDITION_HELP),
         "fields": {"target": TRACE_SOURCE, "condition": "the required end state",
-                   "when": "optional", "line_prefix": "optional"},
+                   "when": "optional", "group_by": "optional field: every group must end in the condition",
+                   "line_prefix": "optional"},
     },
     "trace_count": {
         "family": "trace",
@@ -409,5 +535,23 @@ TRACE_DOCS = {
         "fields": {"target": TRACE_SOURCE, "steps": "list of at least two conditions",
                    "group_by": "optional field", "min_groups": "optional",
                    "min_repeats": "optional", "line_prefix": "optional"},
+    },
+    "trace_delta": {
+        "family": "trace",
+        "verifies": ("between consecutive steps (inside each group_by group), the change in a numeric field "
+                     "equals a value or stays within min / max, give or take tolerance. Catches dropped "
+                     "steps (a counter that must rise by 1), time running backwards, and jumps. A missing or "
+                     "non-finite value is a violation"),
+        "fields": {"target": TRACE_SOURCE, "field": "numeric field", "equals": "exact change",
+                   "min": "smallest allowed change", "max": "largest allowed change",
+                   "tolerance": "optional, default 0", "group_by": "optional field", "line_prefix": "optional"},
+    },
+    "trace_stall": {
+        "family": "trace",
+        "verifies": ("no run of identical values in the given fields lasts more than max_run consecutive "
+                     "steps (inside each group_by group). Catches a frozen controller, a stuck sensor, or "
+                     "a retry loop that repeats the same attempt"),
+        "fields": {"target": TRACE_SOURCE, "fields": "one field or a list compared together",
+                   "max_run": "longest allowed run", "group_by": "optional field", "line_prefix": "optional"},
     },
 }

@@ -64,6 +64,11 @@ def test_conditions() -> None:
     check(not tr.holds({"field": "missing", "lt": 10}, r), "a missing field never satisfies a comparison")
     check(not tr.holds({"field": "missing", "ne": 1}, r), "not even ne: absence is not a value")
     check(tr.holds({"field": "missing", "exists": False}, r), "exists: false holds for an absent field")
+    bad = {"x": float("nan"), "y": float("inf")}
+    check(not tr.holds({"field": "x", "ge": 0}, bad) and not tr.holds({"field": "x", "le": 0}, bad),
+          "NaN satisfies no bound, so a corrupted value fails instead of crashing the check")
+    check(not tr.holds({"field": "y", "le": 512}, bad) and not tr.holds({"field": "y", "ge": 0}, bad),
+          "infinity satisfies no bound either")
     check(tr.holds({"field": "tags.1", "eq": "b"}, r), "dotted paths index into lists")
     check(tr.holds({"field": "phase", "in": ["validate", "parse"]}, r), "in")
     check(tr.holds({"field": "phase", "startswith": "valid"}, r), "startswith")
@@ -227,11 +232,63 @@ def test_root_guard() -> None:
             check("outside the permitted root" in str(exc), f"{label}: refused")
 
 
+def test_relations_and_groups() -> None:
+    print("\n=== relations between steps, and per-group checks ===")
+
+    def episode(ep, n, act=lambda i: i * 3.0):
+        return [{"ep": ep, "frame": i, "ts": round(i * 0.1, 4), "act": act(i), "done": i == n - 1} for i in range(n)]
+
+    clean = episode(0, 20) + episode(1, 15)
+    delta = lambda recs, **kw: tr.check_trace_delta(recs, dict({"group_by": "ep"}, **kw))
+    check(delta(clean, field="frame", equals=1)["status"] == "pass", "a counter rising by exactly 1 passes")
+    gap = [r for r in clean if not (r["ep"] == 1 and r["frame"] == 7)]
+    out = delta(gap, field="frame", equals=1)
+    check(out["status"] == "fail" and "ep 1" in out["detail"], f"a dropped step is found, with its group: {out['detail'][:80]}")
+    check(delta(clean, field="ts", equals=0.1, tolerance=0.001)["status"] == "pass",
+          "time advancing one tick per step passes within tolerance")
+    late = [dict(r, ts=r["ts"] + 3) if (r["ep"] == 0 and r["frame"] == 9) else r for r in clean]
+    check(delta(late, field="ts", equals=0.1, tolerance=0.001)["violations"] == 2,
+          "one shifted timestamp breaks the step before and after it")
+    check(delta(clean, field="frame", min=0)["status"] == "pass" and
+          delta(list(reversed(clean)), field="frame", min=0)["status"] == "fail", "min=0 means never going backwards")
+    nan = [dict(r, frame=float("nan")) if r["frame"] == 3 else r for r in clean]
+    check(delta(nan, field="frame", equals=1)["status"] == "fail", "a NaN in the field is a violation, not a crash")
+    check(tr.check_trace_delta(clean[:1], {"field": "frame", "equals": 1})["status"] == "fail",
+          "with no consecutive pair nothing is proven, so it fails")
+    raises(lambda: tr.check_trace_delta(clean, {"field": "frame"}), "trace_delta without a bound is an error")
+
+    stall = lambda recs, **kw: tr.check_trace_stall(recs, dict({"group_by": "ep", "fields": ["act"]}, **kw))
+    check(stall(clean, max_run=5)["status"] == "pass", "a changing action never stalls")
+    frozen = episode(0, 20) + episode(1, 40, act=lambda i: 7.0 if 5 <= i < 35 else i * 3.0)
+    out = stall(frozen, max_run=5)
+    check(out["status"] == "fail" and out["longest_run"] == 30 and "ep 1" in out["detail"],
+          f"an action frozen for 30 steps is a stall, located: {out['detail'][:90]}")
+    across = episode(0, 3, act=lambda i: 1.0) + episode(1, 3, act=lambda i: 1.0)
+    check(stall(across, max_run=3)["status"] == "pass", "runs do not continue across groups")
+
+    ends = tr.check_trace_final(clean, {"group_by": "ep", "condition": {"field": "done", "eq": True}})
+    check(ends["status"] == "pass", "every group ends in the condition")
+    lost = [dict(r, done=False) if r["ep"] == 1 else r for r in clean]
+    ends = tr.check_trace_final(lost, {"group_by": "ep", "condition": {"field": "done", "eq": True}})
+    check(ends["status"] == "fail" and ends["incomplete_groups"] == [1], "a group with the wrong end is named")
+    some = tr.check_trace_eventually(lost, {"group_by": "ep", "condition": {"field": "done", "eq": True}})
+    check(some["status"] == "fail" and some["incomplete_groups"] == [1], "eventually with group_by requires every group")
+
+    when = {"field": "success", "eq": True}
+    plain = tr.check_trace_always(clean, {"when": when, "condition": {"field": "act", "ge": 0}})
+    allowed = tr.check_trace_always(clean, {"when": when, "condition": {"field": "act", "ge": 0}, "allow_empty": True})
+    check(plain["status"] == "fail" and allowed["status"] == "pass",
+          "a conditional invariant with nothing to check fails unless allow_empty is set")
+    unconditional = tr.check_trace_always([], {"condition": {"field": "act", "ge": 0}, "allow_empty": True})
+    check(unconditional["status"] == "fail", "allow_empty never lets an unconditional invariant pass on nothing")
+
+
 def main() -> int:
     test_conditions()
     test_jobs()
     test_fail_closed()
     test_root_guard()
+    test_relations_and_groups()
     print("\n=== summary ===")
     if failures:
         for f in failures:

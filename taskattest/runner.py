@@ -825,7 +825,9 @@ def run(spec_path: Path, evidence_root: Path, baseline: dict | None = None, only
         except KeyError as exc:
             out = {"status": "fail", "detail": f"spec is missing field {exc}"}
             error = "spec"
-        except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
+        except (OSError, ValueError, TypeError, UnicodeDecodeError, ArithmeticError) as exc:
+            # ArithmeticError: an unexpected number must fail the check, never abort the run,
+            # because an aborted gate lets the agent stop (fail open).
             out = {"status": "fail", "detail": f"{type(exc).__name__}: {exc}"}
             error = "spec"
         out.update({"name": name, "type": kind})

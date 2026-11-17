@@ -194,7 +194,7 @@ def _fix_for(item: dict, result: dict, ctx: dict, error: str | None, helpers: di
                 "note": SCOPE_NOTE}
     if kind and kind.startswith("trace_"):
         fix = {"action": "rerun_task", "check": kind, "note": PROCESS_NOTE}
-        for k in ("first_violation", "incomplete_groups", "count", "final_step", "violations"):
+        for k in ("first_violation", "incomplete_groups", "count", "final_step", "violations", "longest_run"):
             if k in result:
                 fix[k] = result[k]
         return fix
