@@ -162,7 +162,7 @@ A deliverable task — a JSON summary plus a written report — is declared the 
 
 ### Checks available today
 
-Twenty-two check types over six families. Command, scope and trace checks are described in their own sections below.
+Twenty-three check types over six families. Command, scope and trace checks are described in their own sections below.
 
 **Any artifact**
 
@@ -274,6 +274,7 @@ trace check reads a time-ordered state log and judges the process.
 | `trace_count` | How many steps match, how many times the state was entered (`edges`), or how many distinct values of a field occur (`distinct`) |
 | `trace_order` | Steps happen in order — across the whole trace, or inside each group such as a job or a retry loop (`group_by`) |
 | `trace_delta` | Between consecutive steps, a numeric field changes by an exact amount or within bounds — a counter that must rise by 1, time that must advance one tick, no jumps. Per group with `group_by`; a missing or non-finite value is a violation |
+| `trace_sustained` | A condition never holds for more than `max_run` consecutive steps, per group — a tracking error that lasts, an error state that persists. Pairs with the `diff` condition, `{"diff": {"fields": ["commanded", "actual"], "absolute": true, "gt": 20}}`, which compares two fields of one step |
 | `trace_stall` | No run of identical values lasts more than `max_run` steps — a frozen controller, a stuck sensor, a retry loop repeating the same attempt |
 
 A trace is JSONL, a JSON array, CSV, or a raw log: with `line_prefix`, only lines that start with
@@ -524,11 +525,11 @@ Each run writes `evidence/<task_id>/<digest>/manifest.json`:
 
 This is an early release, kept deliberately small.
 
-**Verified** on Windows with Python 3.11.15 and 3.12.10, 268 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
+**Verified** on Windows with Python 3.11.15 and 3.12.10, 279 assertions across eleven suites, all passing on both. CI runs the same eleven suites on Linux, macOS and Windows with Python 3.10, 3.12 and 3.13, and checks that the built wheel installs with nothing else alongside it.
 
 - `selftest.py` (19): CSV reconciliation and a JSON-plus-report deliverable. Five fixture cases judged as expected with digests stable across repeated runs; in the deliberately flawed deliverable, each of the seven seeded flaws is caught by its own check and nothing else fails.
 - `test_xlsx.py` (25): a workbook whose XML is spelled out by hand, asserting exactly what the reader returns for each awkward cell, then a full task judged from `.xlsx` with an `.xlsx` output reconciled against a `.csv` input.
-- `test_trace.py` (47): the condition language (NaN and infinity satisfy no bound), consecutive-step changes and stalls located by group, per-group final and eventually, `allow_empty`, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
+- `test_trace.py` (58): the condition language (NaN and infinity satisfy no bound, `diff` between two fields), conditions that must not persist (`trace_sustained`), consecutive-step changes and stalls located by group, per-group final and eventually, `allow_empty`, a multi-step job judged from a raw UTF-16 log with noise lines — a clean run passes every trace check and a flawed one fails exactly the checks aimed at its flaws — fail-closed cases, and `--root` confinement of list targets.
 - `test_draft.py` (33): what a draft proposes, and what it refuses — a wrong output (duplicated id, invented order, negative amount) still fails its own draft, codes are not forced unique, inputs with refunds suppress the bound and say why, traces, determinism, and overwrite safety.
 - `test_commands.py` (25): an unapproved command never runs and an approvals file inside the project grants nothing; approval covers the exact command and directory; exit codes decide, with `expect_exit`; varying output leaves the digest unchanged; time limits, string commands and missing programs; approve refuses without a terminal unless `--yes`; the `--root` guard; the gate blocking until an approved command passes.
 - `test_plugin.py` (15): the plugin manifests agree with the package version; both hooks and the MCP entry call the launcher with the configured Python; the launcher allows with no spec, blocks a failing spec, passes a fixed one, starts the MCP server and reaches the CLI.

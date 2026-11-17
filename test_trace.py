@@ -283,7 +283,39 @@ def test_relations_and_groups() -> None:
     check(unconditional["status"] == "fail", "allow_empty never lets an unconditional invariant pass on nothing")
 
 
+def test_field_relations() -> None:
+    print("\n=== two fields of one step, and conditions that persist ===")
+    r = {"cmd": 30.0, "pos": 12.5, "bad": float("nan")}
+    check(tr.holds({"diff": {"fields": ["cmd", "pos"], "eq": 17.5}}, r), "diff is a - b, compared exactly")
+    check(tr.holds({"diff": {"fields": ["pos", "cmd"], "absolute": True, "le": 17.5}}, r), "absolute takes |a - b|")
+    check(not tr.holds({"diff": {"fields": ["cmd", "missing"], "le": 100}}, r), "a missing field never satisfies diff")
+    check(not tr.holds({"diff": {"fields": ["cmd", "bad"], "absolute": True, "ge": 0}}, r), "NaN never satisfies diff")
+    raises(lambda: tr.validate({"diff": {"fields": ["cmd"], "le": 1}}), "diff needs exactly two fields")
+    raises(lambda: tr.validate({"diff": {"fields": ["a", "b"], "le": 1, "ge": 0}}), "diff takes exactly one operator")
+
+    def track(ep, n, lag_from=None, lag_len=0, lag=25.0):
+        rows = []
+        for i in range(n):
+            off = lag if lag_from is not None and lag_from <= i < lag_from + lag_len else 1.0
+            rows.append({"ep": ep, "cmd": float(i), "pos": float(i) - off})
+        return rows
+
+    far = {"diff": {"fields": ["cmd", "pos"], "absolute": True, "gt": 20}}
+    sus = lambda recs, **kw: tr.check_trace_sustained(recs, dict({"where": far, "group_by": "ep"}, **kw))
+    clean = track(0, 50) + track(1, 50, lag_from=10, lag_len=5)
+    check(sus(clean, max_run=15)["status"] == "pass", "a brief excursion shorter than max_run is allowed")
+    lagging = track(0, 50) + track(1, 60, lag_from=10, lag_len=30)
+    out = sus(lagging, max_run=15)
+    check(out["status"] == "fail" and out["longest_run"] == 30 and "ep 1" in out["detail"],
+          f"a tracking error that lasts is caught and located: {out['detail'][:90]}")
+    split = track(0, 20, lag_from=10, lag_len=10) + track(1, 20, lag_from=0, lag_len=10)
+    check(sus(split, max_run=15)["status"] == "pass", "a run never continues from one group into the next")
+    check(sus(clean, max_run=0)["status"] == "fail", "max_run 0 means the condition may never hold")
+    raises(lambda: tr.check_trace_sustained(clean, {"where": far}), "trace_sustained needs max_run")
+
+
 def main() -> int:
+    test_field_relations()
     test_conditions()
     test_jobs()
     test_fail_closed()

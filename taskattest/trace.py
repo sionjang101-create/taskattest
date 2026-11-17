@@ -140,6 +140,18 @@ def validate(cond, where="condition") -> None:
     if "not" in cond:
         validate(cond["not"], f"{where}.not")
         return
+    if "diff" in cond:
+        d = cond["diff"]
+        if not isinstance(d, dict) or not isinstance(d.get("fields"), list) or len(d["fields"]) != 2 \
+                or not all(isinstance(f, str) and f for f in d["fields"]):
+            raise TraceError(f"{where}.diff needs fields: two field names, [a, b], for a - b")
+        ops = [op for op in ("lt", "le", "gt", "ge", "eq") if op in d]
+        if len(ops) != 1 or _number(d[ops[0]]) is None:
+            raise TraceError(f"{where}.diff needs exactly one of lt, le, gt, ge, eq with a number")
+        unknown = [k for k in d if k not in ("fields", "absolute", "lt", "le", "gt", "ge", "eq")]
+        if unknown:
+            raise TraceError(f"{where}.diff: unknown key {unknown[0]!r}")
+        return
     if "within" in cond:
         w = cond["within"]
         if not isinstance(w, dict) or not {"fields", "point", "radius"} <= set(w):
@@ -150,7 +162,7 @@ def validate(cond, where="condition") -> None:
             raise TraceError(f"{where}.within.radius must be a number")
         return
     if "field" not in cond:
-        raise TraceError(f"{where} needs a field, or one of all / any / not / within")
+        raise TraceError(f"{where} needs a field, or one of all / any / not / within / diff")
     ops = [op for op in COMPARE_OPS if op in cond]
     unknown = [k for k in cond if k not in COMPARE_OPS and k != "field"]
     if unknown:
@@ -171,6 +183,16 @@ def holds(cond, record) -> bool:
         return any(holds(c, record) for c in cond["any"])
     if "not" in cond:
         return not holds(cond["not"], record)
+    if "diff" in cond:
+        d = cond["diff"]
+        a, b = (_number(lookup(record, f)) for f in d["fields"])
+        if a is None or b is None:
+            return False
+        value = abs(a - b) if d.get("absolute") else a - b
+        op = next(op for op in ("lt", "le", "gt", "ge", "eq") if op in d)
+        bound = _number(d[op])
+        return {"lt": value < bound, "le": value <= bound, "gt": value > bound,
+                "ge": value >= bound, "eq": value == bound}[op]
     if "within" in cond:
         w = cond["within"]
         total = Decimal(0)
@@ -470,6 +492,41 @@ def check_trace_stall(records: list, args: dict) -> dict:
             "first_violation": stalls[0][0] if stalls else None, "longest_run": longest}
 
 
+def check_trace_sustained(records: list, args: dict) -> dict:
+    """The `where` condition never holds for more than max_run consecutive steps (inside each group)."""
+    cond = args.get("where")
+    validate(cond, "where")
+    max_run = args.get("max_run")
+    if not isinstance(max_run, int) or isinstance(max_run, bool) or max_run < 0:
+        raise TraceError("trace_sustained needs max_run, a whole number of steps of at least 0")
+    steps, longest, longest_at, runs = 0, 0, None, []
+    groups = _group(records, args.get("group_by"))
+    for value, rows in groups.values():
+        run, start = 0, None
+        for index, record in rows:
+            steps += 1
+            if holds(cond, record):
+                run, start = run + 1, (start if run else index)
+                if run > longest:
+                    longest, longest_at = run, (start, value)
+                if run == max_run + 1:
+                    runs.append((start, value))
+            else:
+                run = 0
+    if steps == 0:
+        return {"status": "fail", "detail": "no step was checked, so nothing was proven", "violations": 0}
+    detail = f"longest run where the condition held: {longest} step(s), allowed {max_run}"
+    if runs:
+        start, value = runs[0]
+        groups_hit = sorted({json.dumps(v, sort_keys=True) for _, v in runs})
+        detail += f"; {len(runs)} run(s) too long, first from step {start}"
+        if args.get("group_by"):
+            detail += f" ({args['group_by']} {value}); in {len(groups_hit)} group(s)"
+    return {"status": "pass" if not runs else "fail", "detail": detail, "violations": len(runs),
+            "first_violation": runs[0][0] if runs else None, "longest_run": longest,
+            "incomplete_groups": sorted({json.dumps(v, sort_keys=True) for _, v in runs})[:50] if runs else []}
+
+
 TRACE_CHECKS = {
     "trace_always": check_trace_always,
     "trace_eventually": check_trace_eventually,
@@ -478,13 +535,16 @@ TRACE_CHECKS = {
     "trace_order": check_trace_order,
     "trace_delta": check_trace_delta,
     "trace_stall": check_trace_stall,
+    "trace_sustained": check_trace_sustained,
 }
 
 CONDITION_HELP = (
     "A condition is JSON, never code: {\"field\": \"phase\", \"eq\": \"placed\"} with one of "
     "eq, ne, lt, le, gt, ge, in, startswith, exists; or {\"all\": [...]}, {\"any\": [...]}, "
     "{\"not\": {...}}; or {\"within\": {\"fields\": [\"pos.x\", \"pos.z\"], \"point\": [1, 2], "
-    "\"radius\": 0.04}} for a distance. Fields are dotted paths. Numbers compare as decimals."
+    "\"radius\": 0.04}} for a distance; or {\"diff\": {\"fields\": [\"commanded\", \"actual\"], "
+    "\"absolute\": true, \"le\": 20}} to compare two fields of one step. Fields are dotted paths. "
+    "Numbers compare as decimals; NaN and infinity satisfy no comparison."
 )
 
 TRACE_SOURCE = ("one trace file or a list of them, read in order: JSONL, a JSON array, CSV, or a raw "
@@ -545,6 +605,15 @@ TRACE_DOCS = {
         "fields": {"target": TRACE_SOURCE, "field": "numeric field", "equals": "exact change",
                    "min": "smallest allowed change", "max": "largest allowed change",
                    "tolerance": "optional, default 0", "group_by": "optional field", "line_prefix": "optional"},
+    },
+    "trace_sustained": {
+        "family": "trace",
+        "verifies": ("the `where` condition never holds for more than max_run consecutive steps (inside each "
+                     "group_by group): a tracking error that lasts, an error state that persists, a queue that "
+                     "stays full. Brief excursions are allowed. " + CONDITION_HELP),
+        "fields": {"target": TRACE_SOURCE, "where": "the condition that must not persist",
+                   "max_run": "longest allowed run (0 means it may never hold)", "group_by": "optional field",
+                   "line_prefix": "optional"},
     },
     "trace_stall": {
         "family": "trace",
