@@ -4,6 +4,8 @@
 
 **Stop a coding agent from finishing with changes outside its task.** taskattest is a completion gate: when the agent tries to stop, it checks what the agent changed against the files it was allowed to touch, what it produced (invented records, wrong totals, CSV and Excel), and, only if you approved them, the commands you named. A failure blocks the stop with a structured fix; the same failure three times hands over to you. Deterministic rules only — no model calls, no network, no dependencies — and every run leaves an evidence bundle you can replay.
 
+Scope is judged from the final working tree, not by parsing tool calls, so a file written by a script or a build step counts the same as one written by Edit. Runs on Linux, macOS and Windows.
+
 In Claude Code:
 
 ```text
